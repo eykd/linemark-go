@@ -66,7 +66,34 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Create parallel execution examples per user story
    - Validate task completeness (each user story has all needed tasks, independently testable)
 
-5. **Create Beads Tasks** (as children of the [sp:07-implement] phase task):
+5. **Generate GWT Acceptance Specs**:
+
+   For each user story extracted from spec.md:
+
+   a. Create `specs/` directory if it doesn't exist:
+
+   ```bash
+   mkdir -p specs
+   ```
+
+   b. Write `specs/US<N>-<kebab-title>.txt` with:
+      - `;===` header with the user story description
+      - One scenario per acceptance criterion from spec.md
+      - GIVEN/WHEN/THEN steps using domain language only
+
+   c. Validate specs contain no implementation language (quick self-check against GWT Acceptance Spec Rules below)
+
+   d. Commit spec files:
+
+   ```bash
+   git add specs/ && git commit -m "feat: add GWT acceptance specs for US<N>"
+   ```
+
+   See **GWT Acceptance Spec Rules** below for format and language requirements.
+
+6. **Create Beads Tasks** (as children of the [sp:07-implement] phase task):
+
+   > **Note**: Every user story MUST have a corresponding `specs/US<N>-<kebab-title>.txt` file created in step 5.
 
    **First, find the implement phase task** (created by `/sp:01-specify`):
 
@@ -131,7 +158,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Create without dependencies between them
    - They will all appear in `bd ready` once their common parent is ready
 
-6. **Verify Task Hierarchy**:
+7. **Verify Task Hierarchy**:
 
    ```bash
    npx bd dep tree <epic-id>
@@ -140,7 +167,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Verify the hierarchy: Epic → User Story Tasks → Implementation Sub-tasks
    - Check for any circular dependencies: `npx bd dep cycles`
 
-7. **Close Phase Task in Beads**:
+8. **Close Phase Task in Beads**:
 
    After creating all implementation tasks, close the 05-tasks phase task to unblock the implement phase.
 
@@ -160,7 +187,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
    d. Report: "Phase [sp:05-tasks] complete. Run `/sp:next` or `/sp:06-analyze` to validate artifacts."
 
-8. **Report**: Output summary including:
+9. **Report**: Output summary including:
    - **Beads epic ID** and total tasks created in beads
    - **Implement task ID** (`$IMPLEMENT_TASK_ID`) containing all user story tasks
    - Task count per user story (with task IDs)
@@ -178,7 +205,7 @@ The tasks should be immediately executable via beads - each task must be specifi
 
 **CRITICAL**: Tasks MUST be organized by user story to enable independent implementation and testing.
 
-**Tests are OPTIONAL**: Only generate test tasks if explicitly requested in the feature specification or if user requests TDD approach.
+**Acceptance Specs are MANDATORY**: Every user story MUST have a corresponding `specs/US<N>-<kebab-title>.txt` file generated in step 5.
 
 ### Beads Task Format
 
@@ -258,3 +285,35 @@ If beads commands fail during task creation:
 4. **bd command not found**: Suggest `npm install --save-dev @beads/bd`
 
 If beads commands fail completely, report failures and suggest troubleshooting steps.
+
+## GWT Acceptance Spec Rules
+
+**MANDATORY**: Every user story MUST have a corresponding `specs/US<N>-<kebab-title>.txt` file.
+
+**Format**:
+- Use `;===` separator lines around scenario descriptions
+- Use GIVEN, WHEN, THEN keywords (uppercase) at start of lines
+- End each statement with a period
+- Leave blank lines between steps for readability
+
+**Example**:
+
+```text
+;===============================================================
+; User can add a new outline item.
+;===============================================================
+GIVEN an empty outline.
+
+WHEN the user adds an item titled "Chapter 1".
+
+THEN the outline contains 1 item.
+THEN the item is titled "Chapter 1".
+```
+
+**Language rules (STRICT)**:
+- ONLY domain language (user actions, business rules, observable outcomes)
+- NO: class names, function names, file paths, package names
+- NO: HTTP methods, API endpoints, database tables, SQL
+- NO: framework terms (Cobra, handler, middleware, router)
+- NO: data structures (array, map, slice, struct)
+- A non-developer should understand every statement

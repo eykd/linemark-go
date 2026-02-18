@@ -30,3 +30,8 @@ lefthook-local.yml
 # Ralph automation
 .ralph.lock
 .ralph.log
+
+# Acceptance test pipeline (generated artifacts)
+generated-acceptance-tests/
+acceptance-pipeline/ir/
+.ralph-acceptance.json

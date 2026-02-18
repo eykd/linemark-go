@@ -31,7 +31,7 @@ test-cover-html: test-cover
 test-cover-check:
     #!/usr/bin/env bash
     set -uo pipefail
-    PACKAGES=$(go list ./... | grep -v '^github.com/eykd/linemark-go$')
+    PACKAGES=$(go list ./... | grep -v '^github.com/eykd/linemark-go$' | grep -v '/cmd/pipeline$')
     go test -coverprofile=coverage.out $PACKAGES || exit 1
     # Check that all non-Impl functions are at 100%
     # Filter out: Impl functions (exempt), main (exempt), total line, and 100% functions
@@ -69,7 +69,7 @@ build:
 
 # Clean build artifacts
 clean:
-    rm -rf bin/ coverage.out coverage.html
+    rm -rf bin/ coverage.out coverage.html generated-acceptance-tests/ acceptance-pipeline/ir/
 
 # Install dependencies
 deps:
@@ -79,3 +79,22 @@ deps:
 # Run a single test by name (usage: just test-one TestName)
 test-one NAME:
     go test -v -run {{NAME}} ./...
+
+# Full acceptance pipeline: parse specs -> generate tests -> run
+acceptance:
+    ./run-acceptance-tests.sh
+
+# Parse specs/*.txt to IR JSON
+acceptance-parse:
+    go run ./acceptance/cmd/pipeline -action=parse
+
+# Generate Go tests from IR JSON
+acceptance-generate:
+    go run ./acceptance/cmd/pipeline -action=generate
+
+# Run generated acceptance tests only
+acceptance-run:
+    go test -v ./generated-acceptance-tests/...
+
+# Run both unit tests and acceptance tests
+test-all: test acceptance

@@ -30,7 +30,10 @@ readonly STEP_RED="RED"
 readonly STEP_GREEN="GREEN"
 readonly STEP_REFACTOR="REFACTOR"
 readonly STEP_REVIEW="REVIEW"
+readonly STEP_ACCEPTANCE="ACCEPTANCE"
 readonly REVIEW_OUTPUT_FILE=".ralph-review.json"
+readonly ACCEPTANCE_OUTPUT_FILE=".ralph-acceptance.json"
+readonly ATDD_MAX_INNER_CYCLES=15
 
 # Exit codes
 readonly EXIT_SUCCESS=0
@@ -1559,7 +1562,7 @@ Remaining: $REVIEW_REMAINING"
 # Execute full TDD cycle (R-G-R-Review) for one bead task.
 # Arguments: task_json, epic_id
 # Returns 0 on success (task complete), 1 on failure (BLOCKED)
-execute_tdd_cycle() {
+execute_unit_tdd_cycle() {
     local task_json="$1"
     local epic_id="$2"
     local task_id task_title
@@ -1679,6 +1682,177 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>" 2>/dev/null || {
     log ERROR "Task $task_id exhausted $TDD_MAX_CYCLES TDD cycles - marking BLOCKED"
     npx bd comment "$task_id" "BLOCKED: exhausted $TDD_MAX_CYCLES TDD cycles without completion. Last review: $REVIEW_REASON" 2>/dev/null || true
 
+    return 1
+}
+
+##############################################################################
+# ATDD outer loop
+##############################################################################
+
+# Find the GWT spec file for a task by extracting US<N> from the task title.
+# Arguments: task_json
+# Returns: spec file path on stdout, exit 0 if found, exit 1 if not found
+find_spec_for_task() {
+    local task_json="$1"
+    local task_title
+    task_title=$(echo "$task_json" | jq -r '.title // ""')
+
+    # Extract US<N> pattern from task title
+    local us_id
+    us_id=$(echo "$task_title" | grep -oP 'US\d+' | head -1 || true)
+
+    if [[ -z "$us_id" ]]; then
+        return 1
+    fi
+
+    # Find matching spec file
+    local spec_file
+    spec_file=$(find specs/ -name "${us_id}-*.txt" 2>/dev/null | head -1 || true)
+
+    if [[ -z "$spec_file" || ! -f "$spec_file" ]]; then
+        return 1
+    fi
+
+    echo "$spec_file"
+    return 0
+}
+
+# Run acceptance check for a spec file.
+# Arguments: spec_file
+# Returns 0 if acceptance tests PASS, 1 if they fail or pipeline errors
+run_acceptance_check() {
+    local spec_file="$1"
+
+    log INFO "Running acceptance check for $spec_file"
+
+    # Clean previous artifacts
+    rm -rf generated-acceptance-tests/ acceptance-pipeline/ir/
+
+    # Run the pipeline
+    if ! go run ./acceptance/cmd/pipeline -action=run 2>&1; then
+        log DEBUG "Acceptance tests failing (expected during development)"
+        return 1
+    fi
+
+    log INFO "Acceptance tests PASSING"
+    return 0
+}
+
+# Execute ATDD cycle: outer acceptance loop wrapping inner TDD cycles.
+# Tasks with matching spec files get the full ATDD treatment.
+# Tasks without specs fall back to execute_unit_tdd_cycle.
+# Arguments: task_json, epic_id
+# Returns 0 on success (task complete), 1 on failure (BLOCKED)
+execute_atdd_cycle() {
+    local task_json="$1"
+    local epic_id="$2"
+    local task_id task_title
+    local spec_file
+
+    task_id=$(echo "$task_json" | jq -r '.id // "unknown"')
+    task_title=$(echo "$task_json" | jq -r '.title // "unknown"')
+
+    # Try to find a matching spec file
+    if ! spec_file=$(find_spec_for_task "$task_json"); then
+        log INFO "No spec file found for $task_id - falling back to unit TDD cycle"
+        execute_unit_tdd_cycle "$task_json" "$epic_id"
+        return $?
+    fi
+
+    log_section "ATDD CYCLE for $task_id: $task_title (spec: $spec_file)"
+
+    # DRY RUN: show prompts and return
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log INFO "[DRY RUN] ATDD cycle for $task_id with spec $spec_file"
+        log INFO "[DRY RUN] Would run acceptance check, then inner TDD cycles"
+        execute_unit_tdd_cycle "$task_json" "$epic_id"
+        return 0
+    fi
+
+    # Initial acceptance check - if tests already pass, task is done
+    if run_acceptance_check "$spec_file"; then
+        log INFO "Acceptance tests already passing for $task_id - closing bead"
+        npx bd close "$task_id" 2>/dev/null || {
+            log WARN "Failed to close bead $task_id"
+        }
+        git add -A 2>/dev/null || true
+        git commit -m "chore: close bead $task_id (acceptance tests already passing)
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>" 2>/dev/null || true
+        return 0
+    fi
+
+    # Inner TDD loop with acceptance check after each cycle
+    local cycle=0
+    local remaining_items=""
+
+    while (( cycle < ATDD_MAX_INNER_CYCLES )); do
+        cycle=$((cycle + 1))
+        log INFO "=== ATDD Inner Cycle $cycle/$ATDD_MAX_INNER_CYCLES for $task_id ==="
+
+        # Check baseline tests before RED
+        if ! check_baseline_tests; then
+            log ERROR "Baseline tests failing - marking task BLOCKED"
+            npx bd comment "$task_id" "BLOCKED: baseline tests failing before RED step" 2>/dev/null || true
+            return 1
+        fi
+
+        # --- RED: Write smallest possible failing unit test ---
+        if ! execute_tdd_step "$STEP_RED" "$task_json" "$cycle" "$remaining_items"; then
+            log ERROR "RED step failed for $task_id"
+            npx bd comment "$task_id" "BLOCKED: RED step failed after $TDD_STEP_RETRIES retries" 2>/dev/null || true
+            return 1
+        fi
+
+        # --- GREEN: Write minimal code to pass that one test ---
+        local head_before head_after
+        head_before=$(git rev-parse HEAD 2>/dev/null)
+
+        if ! execute_tdd_step "$STEP_GREEN" "$task_json" "$cycle"; then
+            log ERROR "GREEN step failed for $task_id"
+            npx bd comment "$task_id" "BLOCKED: GREEN step failed after $TDD_STEP_RETRIES retries" 2>/dev/null || true
+            return 1
+        fi
+
+        # Check if GREEN committed
+        head_after=$(git rev-parse HEAD 2>/dev/null)
+        if [[ "$head_before" == "$head_after" ]]; then
+            log WARN "GREEN step did not commit - creating fallback commit"
+            git add -A 2>/dev/null || true
+            git commit -m "feat: implement $task_title (GREEN step - fallback commit)
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>" 2>/dev/null || {
+                log WARN "Fallback commit failed (possibly no changes)"
+            }
+        fi
+
+        # --- REFACTOR: Improve code quality ---
+        if ! execute_tdd_step "$STEP_REFACTOR" "$task_json" "$cycle"; then
+            log WARN "REFACTOR step failed - continuing with GREEN state"
+        fi
+
+        # --- ACCEPTANCE CHECK after each inner cycle ---
+        if run_acceptance_check "$spec_file"; then
+            log INFO "Acceptance tests PASSING after cycle $cycle - task complete"
+            npx bd close "$task_id" 2>/dev/null || {
+                log WARN "Failed to close bead $task_id"
+            }
+            git add -A 2>/dev/null || true
+            git commit -m "chore: close bead $task_id (acceptance tests passing)
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>" 2>/dev/null || true
+            rm -f "$ACCEPTANCE_OUTPUT_FILE"
+            return 0
+        fi
+
+        log INFO "Acceptance tests still failing after cycle $cycle - continuing"
+        remaining_items="Acceptance tests still failing. Continue implementing toward passing acceptance criteria in $spec_file."
+    done
+
+    # Exhausted all inner cycles
+    log ERROR "Task $task_id exhausted $ATDD_MAX_INNER_CYCLES ATDD inner cycles - marking BLOCKED"
+    npx bd comment "$task_id" "BLOCKED: exhausted $ATDD_MAX_INNER_CYCLES ATDD inner cycles without acceptance tests passing" 2>/dev/null || true
+    rm -f "$ACCEPTANCE_OUTPUT_FILE"
     return 1
 }
 
@@ -1905,13 +2079,13 @@ $task_description"
 
         # In dry-run mode, show all four TDD prompts for this task and exit
         if [[ "$DRY_RUN" == "true" ]]; then
-            execute_tdd_cycle "$next_task" "$epic_id"
+            execute_atdd_cycle "$next_task" "$epic_id"
             return "$EXIT_SUCCESS"
         fi
 
-        # Execute TDD cycle (R-G-R-Review) for this task
-        if execute_tdd_cycle "$next_task" "$epic_id"; then
-            log INFO "Task $task_id completed via TDD cycle"
+        # Execute ATDD cycle (acceptance-driven TDD) for this task
+        if execute_atdd_cycle "$next_task" "$epic_id"; then
+            log INFO "Task $task_id completed via ATDD cycle"
 
             # Auto-close parent container tasks if all children are now completed.
             # Walks up from the processed task, closing each ancestor whose

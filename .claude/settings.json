@@ -19,6 +19,26 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/pre-tool-use-bash.sh"
           }
         ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/scripts/check-specs-exist.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/scripts/stop-reminder.sh"
+          }
+        ]
       }
     ]
   }
