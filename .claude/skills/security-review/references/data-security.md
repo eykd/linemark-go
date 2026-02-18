@@ -11,71 +11,83 @@
 
 ### Parameterized Queries (Required)
 
-```typescript
-// ✅ CORRECT - Parameter binding
-const user = await db.prepare('SELECT * FROM users WHERE id = ?').bind(userId).first();
+```go
+// CORRECT - Parameter binding
+var user User
+err := db.QueryRowContext(ctx, "SELECT * FROM users WHERE id = $1", userID).Scan(&user)
 
-// ✅ CORRECT - Multiple parameters
-const tasks = await db
-  .prepare('SELECT * FROM tasks WHERE user_id = ? AND status = ?')
-  .bind(userId, status)
-  .all();
+// CORRECT - Multiple parameters
+rows, err := db.QueryContext(ctx,
+	"SELECT * FROM tasks WHERE user_id = $1 AND status = $2",
+	userID, status)
 
-// ❌ CRITICAL - String interpolation
-const user = await db.prepare(`SELECT * FROM users WHERE id = '${userId}'`).first();
+// WRONG - String concatenation
+row := db.QueryRow("SELECT * FROM users WHERE id = '" + userID + "'") // WRONG
 
-// ❌ CRITICAL - Template literal
-const user = await db.prepare(`SELECT * FROM users WHERE email = '${email}'`).first();
+// WRONG - fmt.Sprintf
+row := db.QueryRow(fmt.Sprintf("SELECT * FROM users WHERE email = '%s'", email)) // WRONG
 ```
 
 ### Dynamic Query Building
 
-```typescript
+```go
 // Safe: Dynamic conditions with parameters
-function buildQuery(filters: TaskFilters): { sql: string; params: unknown[] } {
-  const conditions: string[] = ['user_id = ?'];
-  const params: unknown[] = [filters.userId];
+func buildQuery(filters TaskFilters) (string, []any) {
+	conditions := []string{"user_id = $1"}
+	params := []any{filters.UserID}
+	paramIdx := 2
 
-  if (filters.status) {
-    conditions.push('status = ?');
-    params.push(filters.status);
-  }
+	if filters.Status != "" {
+		conditions = append(conditions, fmt.Sprintf("status = $%d", paramIdx))
+		params = append(params, filters.Status)
+		paramIdx++
+	}
 
-  if (filters.createdAfter) {
-    conditions.push('created_at > ?');
-    params.push(filters.createdAfter.toISOString());
-  }
+	if !filters.CreatedAfter.IsZero() {
+		conditions = append(conditions, fmt.Sprintf("created_at > $%d", paramIdx))
+		params = append(params, filters.CreatedAfter)
+		paramIdx++
+	}
 
-  return {
-    sql: `SELECT * FROM tasks WHERE ${conditions.join(' AND ')} LIMIT ?`,
-    params: [...params, filters.limit ?? 50],
-  };
+	limit := filters.Limit
+	if limit == 0 {
+		limit = 50
+	}
+	params = append(params, limit)
+
+	query := fmt.Sprintf("SELECT * FROM tasks WHERE %s LIMIT $%d",
+		strings.Join(conditions, " AND "), paramIdx)
+
+	return query, params
 }
 ```
 
 ### Safe Dynamic Column Names
 
-```typescript
+```go
 // Allowlist pattern for column names
-const ALLOWED_COLUMNS = new Set(['created_at', 'updated_at', 'title', 'status']);
-const ALLOWED_DIRECTIONS = new Set(['ASC', 'DESC']);
+var (
+	allowedColumns    = map[string]bool{"created_at": true, "updated_at": true, "title": true, "status": true}
+	allowedDirections = map[string]bool{"ASC": true, "DESC": true}
+)
 
-function buildOrderClause(column: string, direction: string): string {
-  if (!ALLOWED_COLUMNS.has(column)) {
-    throw new Error(`Invalid column: ${column}`);
-  }
-  if (!ALLOWED_DIRECTIONS.has(direction.toUpperCase())) {
-    throw new Error(`Invalid direction: ${direction}`);
-  }
-  // Safe to interpolate after validation
-  return `ORDER BY ${column} ${direction.toUpperCase()}`;
+func buildOrderClause(column, direction string) (string, error) {
+	if !allowedColumns[column] {
+		return "", fmt.Errorf("invalid column: %s", column)
+	}
+	dir := strings.ToUpper(direction)
+	if !allowedDirections[dir] {
+		return "", fmt.Errorf("invalid direction: %s", direction)
+	}
+	// Safe to interpolate after allowlist validation
+	return fmt.Sprintf("ORDER BY %s %s", column, dir), nil
 }
 ```
 
 ### Flag These as Critical
 
-- Any string interpolation in SQL
-- Template literals with user input in queries
+- Any string interpolation/concatenation in SQL
+- `fmt.Sprintf` with user input in queries
 - Dynamic table/column names without allowlist
 - Raw SQL execution without parameterization
 
@@ -83,160 +95,113 @@ function buildOrderClause(column: string, direction: string): string {
 
 ### Validation Framework
 
-```typescript
-type ValidationResult<T> =
-  | { success: true; value: T }
-  | { success: false; errors: ValidationError[] };
-
-interface ValidationError {
-  field: string;
-  message: string;
-  code: string;
+```go
+// ValidationError represents a single field validation failure.
+type ValidationError struct {
+	Field   string
+	Message string
+	Code    string
 }
 
-class StringValidator {
-  constructor(
-    private field: string,
-    private config: {
-      minLength?: number;
-      maxLength?: number;
-      pattern?: RegExp;
-      required?: boolean;
-    } = {}
-  ) {}
+// ValidationResult holds the outcome of input validation.
+type ValidationResult struct {
+	Errors []ValidationError
+}
 
-  validate(input: unknown): ValidationResult<string> {
-    const errors: ValidationError[] = [];
+// IsValid reports whether validation passed.
+func (r ValidationResult) IsValid() bool {
+	return len(r.Errors) == 0
+}
 
-    if (typeof input !== 'string') {
-      return {
-        success: false,
-        errors: [
-          {
-            field: this.field,
-            message: 'Must be a string',
-            code: 'INVALID_TYPE',
-          },
-        ],
-      };
-    }
+// ValidateString checks string constraints.
+func ValidateString(field, value string, minLen, maxLen int, required bool) []ValidationError {
+	var errs []ValidationError
+	trimmed := strings.TrimSpace(value)
 
-    const trimmed = input.trim();
-
-    if (this.config.required && !trimmed) {
-      errors.push({ field: this.field, message: 'Required', code: 'REQUIRED' });
-    }
-    if (this.config.minLength && trimmed.length < this.config.minLength) {
-      errors.push({
-        field: this.field,
-        message: `Min ${this.config.minLength} chars`,
-        code: 'TOO_SHORT',
-      });
-    }
-    if (this.config.maxLength && trimmed.length > this.config.maxLength) {
-      errors.push({
-        field: this.field,
-        message: `Max ${this.config.maxLength} chars`,
-        code: 'TOO_LONG',
-      });
-    }
-    if (this.config.pattern && !this.config.pattern.test(trimmed)) {
-      errors.push({ field: this.field, message: 'Invalid format', code: 'INVALID_FORMAT' });
-    }
-
-    return errors.length ? { success: false, errors } : { success: true, value: trimmed };
-  }
+	if required && trimmed == "" {
+		errs = append(errs, ValidationError{Field: field, Message: "Required", Code: "REQUIRED"})
+		return errs
+	}
+	if minLen > 0 && len(trimmed) < minLen {
+		errs = append(errs, ValidationError{
+			Field: field, Message: fmt.Sprintf("Min %d chars", minLen), Code: "TOO_SHORT"})
+	}
+	if maxLen > 0 && len(trimmed) > maxLen {
+		errs = append(errs, ValidationError{
+			Field: field, Message: fmt.Sprintf("Max %d chars", maxLen), Code: "TOO_LONG"})
+	}
+	return errs
 }
 ```
 
 ### Allowlist Validation
 
-```typescript
-// For fixed-set inputs (select boxes, radio buttons)
-class AllowlistValidator<T extends string> {
-  constructor(
-    private field: string,
-    private allowed: readonly T[]
-  ) {}
-
-  validate(input: unknown): ValidationResult<T> {
-    if (typeof input !== 'string') {
-      return {
-        success: false,
-        errors: [
-          {
-            field: this.field,
-            message: 'Must be a string',
-            code: 'INVALID_TYPE',
-          },
-        ],
-      };
-    }
-
-    if (!this.allowed.includes(input as T)) {
-      // Log as security event - shouldn't happen with valid client
-      console.warn('Allowlist violation', { field: this.field, value: input });
-      return {
-        success: false,
-        errors: [
-          {
-            field: this.field,
-            message: 'Invalid selection',
-            code: 'NOT_ALLOWED',
-          },
-        ],
-      };
-    }
-
-    return { success: true, value: input as T };
-  }
+```go
+// ValidateAllowlist checks that a value is in an allowed set.
+func ValidateAllowlist(field, value string, allowed []string) []ValidationError {
+	for _, a := range allowed {
+		if value == a {
+			return nil
+		}
+	}
+	// Log as security event - shouldn't happen with valid client
+	log.Printf("allowlist violation: field=%s value=%s", field, value)
+	return []ValidationError{{
+		Field: field, Message: "Invalid selection", Code: "NOT_ALLOWED"}}
 }
 
 // Usage
-const STATUSES = ['pending', 'active', 'completed'] as const;
-const statusValidator = new AllowlistValidator('status', STATUSES);
+var validStatuses = []string{"pending", "active", "completed"}
+errs := ValidateAllowlist("status", input.Status, validStatuses)
 ```
 
 ### Email Validation
 
-```typescript
-class EmailValidator extends StringValidator {
-  private static PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+```go
+import "net/mail"
 
-  constructor(field: string) {
-    super(field, { maxLength: 254, pattern: EmailValidator.PATTERN });
-  }
+// ValidateEmail validates and normalizes an email address.
+func ValidateEmail(field, value string) (string, []ValidationError) {
+	if len(value) > 254 {
+		return "", []ValidationError{{Field: field, Message: "Max 254 chars", Code: "TOO_LONG"}}
+	}
 
-  validate(input: unknown): ValidationResult<string> {
-    const result = super.validate(input);
-    if (!result.success) return result;
+	addr, err := mail.ParseAddress(value)
+	if err != nil {
+		return "", []ValidationError{{Field: field, Message: "Invalid email format", Code: "INVALID_FORMAT"}}
+	}
 
-    // Normalize for storage (prevent duplicate accounts)
-    const normalized = result.value.toLowerCase();
-    return { success: true, value: normalized };
-  }
+	// Normalize for storage (prevent duplicate accounts)
+	normalized := strings.ToLower(addr.Address)
+	return normalized, nil
 }
 ```
 
 ### Validation in Handlers
 
-```typescript
-async function handleCreateUser(request: Request): Promise<Response> {
-  const body = await request.json();
+```go
+func handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	var req CreateUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
 
-  const validation = createUserValidator.validate(body);
+	result := validateCreateUser(req)
+	if !result.IsValid() {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(result.Errors)
+		return
+	}
 
-  if (!validation.success) {
-    // Return errors for HTMX to display
-    return new Response(renderValidationErrors(validation.errors), {
-      status: 422,
-      headers: { 'Content-Type': 'text/html' },
-    });
-  }
-
-  // Proceed with validated, typed data
-  const user = await createUser(validation.value);
-  return new Response(renderSuccess(user));
+	// Proceed with validated data
+	user, err := createUser(r.Context(), req)
+	if err != nil {
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(user)
 }
 ```
 
@@ -251,103 +216,124 @@ async function handleCreateUser(request: Request): Promise<Response> {
 
 ### Explicit Field Selection
 
-```typescript
-// ❌ WRONG - Updates any field client sends
-async function updateUser(id: string, data: Record<string, unknown>) {
-  await db.prepare('UPDATE users SET ...').bind(...Object.values(data));
+```go
+// WRONG - Updates any field from request
+func updateUser(ctx context.Context, id string, data map[string]any) error {
+	// Dangerous: client controls which fields are updated
 }
 
-// ✅ CORRECT - Explicit allowed fields
-interface UpdateUserRequest {
-  name?: string;
-  email?: string;
-  // Note: no 'role' or 'isAdmin' fields
+// CORRECT - Explicit allowed fields
+type UpdateUserRequest struct {
+	Name  *string `json:"name"`
+	Email *string `json:"email"`
+	// Note: no Role or IsAdmin fields
 }
 
-async function updateUser(id: string, data: UpdateUserRequest) {
-  const updates: string[] = [];
-  const params: unknown[] = [];
+func updateUser(ctx context.Context, db *sql.DB, id string, req UpdateUserRequest) error {
+	var updates []string
+	var params []any
+	paramIdx := 1
 
-  if (data.name !== undefined) {
-    updates.push('name = ?');
-    params.push(data.name);
-  }
-  if (data.email !== undefined) {
-    updates.push('email = ?');
-    params.push(data.email);
-  }
+	if req.Name != nil {
+		updates = append(updates, fmt.Sprintf("name = $%d", paramIdx))
+		params = append(params, *req.Name)
+		paramIdx++
+	}
+	if req.Email != nil {
+		updates = append(updates, fmt.Sprintf("email = $%d", paramIdx))
+		params = append(params, *req.Email)
+		paramIdx++
+	}
 
-  if (updates.length === 0) return;
+	if len(updates) == 0 {
+		return nil
+	}
 
-  params.push(id);
-  await db
-    .prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`)
-    .bind(...params)
-    .run();
+	params = append(params, id)
+	query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d",
+		strings.Join(updates, ", "), paramIdx)
+	_, err := db.ExecContext(ctx, query, params...)
+	return err
 }
 ```
 
 ### DTO Pattern
 
-```typescript
+```go
 // Define exactly what's accepted
-interface CreateTaskDto {
-  title: string;
-  description: string;
-  status: 'pending' | 'active';
-  // Explicitly omit: userId, createdAt, id (set server-side)
+type CreateTaskRequest struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Status      string `json:"status"` // validated to "pending" | "active"
+	// Explicitly omit: UserID, CreatedAt, ID (set server-side)
 }
 
-function createTask(dto: CreateTaskDto, userId: string): Task {
-  return {
-    id: generateId(), // Server-controlled
-    userId, // From session
-    createdAt: new Date(), // Server-controlled
-    ...dto, // Only allowed fields
-  };
+func createTask(ctx context.Context, req CreateTaskRequest, userID string) (*Task, error) {
+	return &Task{
+		ID:          uuid.NewString(),    // Server-controlled
+		UserID:      userID,              // From session
+		CreatedAt:   time.Now(),          // Server-controlled
+		Title:       req.Title,
+		Description: req.Description,
+		Status:      req.Status,
+	}, nil
 }
 ```
 
 ### Flag These as High
 
-- Spreading request body into entities
-- Dynamic updates from user input
+- `json.Unmarshal` into domain entities directly
+- Dynamic updates from `map[string]any`
 - Missing field allowlists
 
 ## Secrets Management
 
 ### Environment Variables
 
-```typescript
-// ✅ CORRECT - Access via env binding
-export default {
-  async fetch(request: Request, env: Env) {
-    const apiKey = env.API_SECRET; // From wrangler secret
-  },
-};
+```go
+// CORRECT - Access via environment
+apiKey := os.Getenv("API_SECRET")
+if apiKey == "" {
+	log.Fatal("API_SECRET environment variable is required")
+}
 
-// ❌ CRITICAL - Hardcoded secrets
-const API_KEY = 'sk-abc123...';
-const DB_PASSWORD = 'password123';
+// WRONG - Hardcoded secrets
+const apiKey = "sk-abc123..."   // WRONG
+const dbPassword = "password123" // WRONG
 ```
 
-### Cloudflare Workers
+### Configuration Pattern
 
-```bash
-# Set secrets via CLI (not in wrangler.toml)
-wrangler secret put API_SECRET
-wrangler secret put JWT_SECRET
-```
+```go
+// Config holds application configuration loaded from environment.
+type Config struct {
+	APISecret    string
+	DatabaseURL  string
+	JWTSecret    string
+	Environment  string
+	LogLevel     string
+}
 
-### wrangler.toml
+// LoadConfig reads configuration from environment variables.
+func LoadConfig() (*Config, error) {
+	cfg := &Config{
+		APISecret:   os.Getenv("API_SECRET"),
+		DatabaseURL: os.Getenv("DATABASE_URL"),
+		JWTSecret:   os.Getenv("JWT_SECRET"),
+		Environment: os.Getenv("ENVIRONMENT"),
+		LogLevel:    os.Getenv("LOG_LEVEL"),
+	}
 
-```toml
-[vars]
-# Only non-sensitive configuration
-ENVIRONMENT = "production"
-LOG_LEVEL = "info"
+	// Validate required secrets
+	if cfg.APISecret == "" {
+		return nil, errors.New("API_SECRET is required")
+	}
+	if cfg.DatabaseURL == "" {
+		return nil, errors.New("DATABASE_URL is required")
+	}
 
-# Never put secrets here!
+	return cfg, nil
+}
 ```
 
 ### Flag These as Critical

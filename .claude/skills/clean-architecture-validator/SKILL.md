@@ -10,7 +10,7 @@ Analyze code for Clean Architecture compliance focusing on the dependency rule: 
 ## Layer Hierarchy (Inner to Outer)
 
 ```
-Domain → Application → Infrastructure/Presentation
+Domain -> Application -> Infrastructure/Presentation
 ```
 
 - **Domain**: Entities, Value Objects, Domain Services, Repository Interfaces
@@ -49,7 +49,7 @@ Inner layers must never depend on outer layers:
 
 **Interface misplacement**:
 
-- Repository interfaces in `infrastructure/` (should be in `domain/interfaces/`)
+- Repository interfaces in `infrastructure/` (should be in `domain/`)
 - Port interfaces outside domain layer
 
 ## Output Format
@@ -58,16 +58,16 @@ Inner layers must never depend on outer layers:
 ## Architecture Violations Found
 
 ### Critical (Domain Layer)
-- `src/domain/entities/User.ts:5` - Imports `D1Database` from infrastructure
-  → Move database logic to repository implementation
+- `internal/domain/entity/user.go:5` - Imports `database/sql` from infrastructure
+  -> Move database logic to repository implementation
 
 ### Warning (Application Layer)
-- `src/application/use-cases/CreateUser.ts:12` - Instantiates `D1UserRepository`
-  → Accept repository via constructor injection
+- `internal/application/usecase/create_user.go:12` - Instantiates `SQLUserRepository`
+  -> Accept repository via constructor injection
 
 ### Info (Interface Placement)
-- `src/infrastructure/UserRepository.ts` - Interface defined in infrastructure
-  → Move interface to `src/domain/interfaces/UserRepository.ts`
+- `internal/infra/user_repository.go` - Interface defined in infrastructure
+  -> Move interface to `internal/domain/user.go`
 ```
 
 ## References

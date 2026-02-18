@@ -11,7 +11,7 @@ Apply Ken Pugh's prefactoring principles proactively during design and implement
 
 ### Need to design system structure?
 
-**When**: Creating modules, defining boundaries, making architectural decisions
+**When**: Creating packages, defining boundaries, making architectural decisions
 **Go to**: [references/architecture.md](./references/architecture.md)
 
 ### Need to create domain types?
@@ -21,12 +21,12 @@ Apply Ken Pugh's prefactoring principles proactively during design and implement
 
 ### Need to work with collections?
 
-**When**: Arrays with domain behavior, deciding where methods belong
+**When**: Slices with domain behavior, deciding where methods belong
 **Go to**: [references/collections.md](./references/collections.md)
 
 ### Need to name things?
 
-**When**: Naming functions/classes, making code self-documenting
+**When**: Naming functions/types, making code self-documenting
 **Go to**: [references/naming.md](./references/naming.md)
 
 ### Need to eliminate duplication?
@@ -55,8 +55,8 @@ Apply Ken Pugh's prefactoring principles proactively during design and implement
 
 ### Creating Types
 
-- Wrap primitives: `Email`, `Money`, `UserId` not `string`, `number`
-- Group related data: Parameter objects, value objects
+- Wrap primitives: `Email`, `Money`, `UserID` not `string`, `int`
+- Group related data: Parameter structs, value objects
 - Split fine, lump later (easier to combine than split)
 
 ## Anti-Patterns
@@ -65,49 +65,57 @@ Apply Ken Pugh's prefactoring principles proactively during design and implement
 | ---------------------- | ------------------------- | ------------------------- |
 | Magic numbers/strings  | Never let a constant slip | Extract named constants   |
 | Primitive obsession    | Be abstract all the way   | Create domain types       |
-| God class              | Separation of concerns    | Split by responsibility   |
+| God struct             | Separation of concerns    | Split by responsibility   |
 | Feature envy           | Place methods by need     | Move method to data owner |
 | Silent failure         | Never be silent           | Always report errors      |
 | Premature optimization | Don't speed until...      | Make it right first       |
 
 ## Quick Example
 
-```typescript
+```go
 // Before: Primitive obsession, magic numbers
-function processOrder(email: string, amount: number): void {
-  if (amount > 1000) {
-    /* discount logic */
-  }
+func processOrder(email string, amount float64) {
+    if amount > 1000 {
+        // discount logic
+    }
 }
 
 // After: Domain types, named constants
-const BULK_ORDER_THRESHOLD = 1000;
+const BulkOrderThreshold = 1000
 
-class Money {
-  constructor(private readonly cents: number) {}
-  exceedsThreshold(threshold: number): boolean {
-    return this.cents > threshold * 100;
-  }
+type Money struct {
+    cents int
 }
 
-class Email {
-  constructor(private readonly value: string) {
-    if (!value.includes('@')) throw new Error('Invalid email');
-  }
+func NewMoney(cents int) Money {
+    return Money{cents: cents}
 }
 
-function processOrder(email: Email, amount: Money): void {
-  if (amount.exceedsThreshold(BULK_ORDER_THRESHOLD)) {
-    /* ... */
-  }
+func (m Money) ExceedsThreshold(threshold int) bool {
+    return m.cents > threshold*100
+}
+
+type Email struct {
+    value string
+}
+
+func NewEmail(value string) (Email, error) {
+    if !strings.Contains(value, "@") {
+        return Email{}, errors.New("invalid email")
+    }
+    return Email{value: value}, nil
+}
+
+func processOrder(email Email, amount Money) {
+    if amount.ExceedsThreshold(BulkOrderThreshold) {
+        // ...
+    }
 }
 ```
 
 ## Cross-References
 
-- **[ddd-domain-modeling](../ddd-domain-modeling/SKILL.md)**: Value objects, entities, aggregates
-- **[clean-architecture-validator](../clean-architecture-validator/SKILL.md)**: Layer boundaries, dependency rules
-- **[typescript-unit-testing](../typescript-unit-testing/SKILL.md)**: Test-driven development, test design
+- **[go-tdd](../go-tdd/SKILL.md)**: Test-driven development, test design
 
 ## Reference Files
 
@@ -117,4 +125,4 @@ function processOrder(email: Email, amount: Money): void {
 - [references/naming.md](./references/naming.md): Ubiquitous language, self-documenting code
 - [references/separation.md](./references/separation.md): DRY, policy/implementation separation
 - [references/contracts.md](./references/contracts.md): API contracts, validation, testability
-- [references/error-handling.md](./references/error-handling.md): Error strategies, Result type
+- [references/error-handling.md](./references/error-handling.md): Error strategies, (T, error) pattern

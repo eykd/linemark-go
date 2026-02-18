@@ -12,31 +12,35 @@
 4. Replace original with function call
 5. Test
 
-```typescript
+```go
 // Before
-function printOwing(invoice: Invoice): void {
-  let outstanding = 0;
-  for (const o of invoice.orders) {
-    outstanding += o.amount;
-  }
+func printOwing(invoice Invoice) {
+	outstanding := 0.0
+	for _, o := range invoice.Orders {
+		outstanding += o.Amount
+	}
 
-  console.log(`Customer: ${invoice.customer}`);
-  console.log(`Amount: ${outstanding}`);
+	fmt.Printf("Customer: %s\n", invoice.Customer)
+	fmt.Printf("Amount: %.2f\n", outstanding)
 }
 
 // After
-function printOwing(invoice: Invoice): void {
-  const outstanding = calculateOutstanding(invoice);
-  printDetails(invoice, outstanding);
+func printOwing(invoice Invoice) {
+	outstanding := calculateOutstanding(invoice)
+	printDetails(invoice, outstanding)
 }
 
-function calculateOutstanding(invoice: Invoice): number {
-  return invoice.orders.reduce((sum, o) => sum + o.amount, 0);
+func calculateOutstanding(invoice Invoice) float64 {
+	total := 0.0
+	for _, o := range invoice.Orders {
+		total += o.Amount
+	}
+	return total
 }
 
-function printDetails(invoice: Invoice, outstanding: number): void {
-  console.log(`Customer: ${invoice.customer}`);
-  console.log(`Amount: ${outstanding}`);
+func printDetails(invoice Invoice, outstanding float64) {
+	fmt.Printf("Customer: %s\n", invoice.Customer)
+	fmt.Printf("Amount: %.2f\n", outstanding)
 }
 ```
 
@@ -46,25 +50,31 @@ function printDetails(invoice: Invoice, outstanding: number): void {
 
 **Steps**:
 
-1. Check function isn't polymorphic (not overridden)
+1. Check function is not part of an interface implementation
 2. Find all callers
 3. Replace each call with function body
 4. Remove function definition
 5. Test after each replacement
 
-```typescript
+```go
 // Before
-function getRating(driver: Driver): number {
-  return moreThanFiveLateDeliveries(driver) ? 2 : 1;
+func getRating(driver Driver) int {
+	if moreThanFiveLateDeliveries(driver) {
+		return 2
+	}
+	return 1
 }
 
-function moreThanFiveLateDeliveries(driver: Driver): boolean {
-  return driver.lateDeliveries > 5;
+func moreThanFiveLateDeliveries(driver Driver) bool {
+	return driver.LateDeliveries > 5
 }
 
 // After
-function getRating(driver: Driver): number {
-  return driver.lateDeliveries > 5 ? 2 : 1;
+func getRating(driver Driver) int {
+	if driver.LateDeliveries > 5 {
+		return 2
+	}
+	return 1
 }
 ```
 
@@ -75,23 +85,25 @@ function getRating(driver: Driver): number {
 **Steps**:
 
 1. Ensure expression has no side effects
-2. Declare immutable variable with clear name
+2. Declare variable with clear name
 3. Assign expression to variable
 4. Replace expression with variable reference
 
-```typescript
+```go
 // Before
-return (
-  order.quantity * order.itemPrice -
-  Math.max(0, order.quantity - 500) * order.itemPrice * 0.05 +
-  Math.min(order.quantity * order.itemPrice * 0.1, 100)
-);
+func price(order Order) float64 {
+	return order.Quantity*order.ItemPrice -
+		math.Max(0, float64(order.Quantity-500))*order.ItemPrice*0.05 +
+		math.Min(order.Quantity*order.ItemPrice*0.1, 100)
+}
 
 // After
-const basePrice = order.quantity * order.itemPrice;
-const quantityDiscount = Math.max(0, order.quantity - 500) * order.itemPrice * 0.05;
-const shipping = Math.min(basePrice * 0.1, 100);
-return basePrice - quantityDiscount + shipping;
+func price(order Order) float64 {
+	basePrice := float64(order.Quantity) * order.ItemPrice
+	quantityDiscount := math.Max(0, float64(order.Quantity-500)) * order.ItemPrice * 0.05
+	shipping := math.Min(basePrice*0.1, 100)
+	return basePrice - quantityDiscount + shipping
+}
 ```
 
 ## Inline Variable
@@ -104,13 +116,13 @@ return basePrice - quantityDiscount + shipping;
 2. Replace all references with expression
 3. Remove declaration
 
-```typescript
+```go
 // Before
-const basePrice = order.basePrice;
-return basePrice > 1000;
+basePrice := order.BasePrice
+return basePrice > 1000
 
 // After
-return order.basePrice > 1000;
+return order.BasePrice > 1000
 ```
 
 ## Replace Temp with Query
@@ -123,21 +135,25 @@ return order.basePrice > 1000;
 2. Replace temp references with function call
 3. Remove temp declaration
 
-```typescript
+```go
 // Before
-function price(order: Order): number {
-  const basePrice = order.quantity * order.itemPrice;
-  if (basePrice > 1000) return basePrice * 0.95;
-  return basePrice * 0.98;
+func (o *Order) Price() float64 {
+	basePrice := float64(o.Quantity) * o.ItemPrice
+	if basePrice > 1000 {
+		return basePrice * 0.95
+	}
+	return basePrice * 0.98
 }
 
 // After
-function price(order: Order): number {
-  if (basePrice(order) > 1000) return basePrice(order) * 0.95;
-  return basePrice(order) * 0.98;
+func (o *Order) Price() float64 {
+	if o.basePrice() > 1000 {
+		return o.basePrice() * 0.95
+	}
+	return o.basePrice() * 0.98
 }
 
-function basePrice(order: Order): number {
-  return order.quantity * order.itemPrice;
+func (o *Order) basePrice() float64 {
+	return float64(o.Quantity) * o.ItemPrice
 }
 ```

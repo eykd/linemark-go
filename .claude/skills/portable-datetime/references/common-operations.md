@@ -1,125 +1,120 @@
 # Common Datetime Operations
 
-Recipes for everyday datetime tasks using UTC storage and portable timezone handling.
+Recipes for everyday datetime tasks using UTC storage and Go's `time` package.
 
 ## Adding Time Durations
 
 ### Add Hours
 
-```typescript
-function addHours(utcIso: string, hours: number): string {
-  const date = new Date(utcIso);
-  date.setTime(date.getTime() + hours * 60 * 60 * 1000);
-  return date.toISOString();
+```go
+func addHours(t time.Time, hours int) time.Time {
+	return t.Add(time.Duration(hours) * time.Hour)
 }
 
 // 2 hours from now
-const later = addHours('2025-01-15T16:00:00.000Z', 2);
-// '2025-01-15T18:00:00.000Z'
+later := addHours(time.Date(2025, 1, 15, 16, 0, 0, 0, time.UTC), 2)
+// 2025-01-15T18:00:00Z
 ```
 
 ### Add Days
 
-```typescript
-function addDays(utcIso: string, days: number): string {
-  const date = new Date(utcIso);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString();
+```go
+func addDays(t time.Time, days int) time.Time {
+	return t.AddDate(0, 0, days)
 }
 
 // Tomorrow same time
-const tomorrow = addDays('2025-01-15T16:00:00.000Z', 1);
-// '2025-01-16T16:00:00.000Z'
+tomorrow := addDays(time.Date(2025, 1, 15, 16, 0, 0, 0, time.UTC), 1)
+// 2025-01-16T16:00:00Z
 ```
 
 ### Add Weeks
 
-```typescript
-function addWeeks(utcIso: string, weeks: number): string {
-  return addDays(utcIso, weeks * 7);
+```go
+func addWeeks(t time.Time, weeks int) time.Time {
+	return t.AddDate(0, 0, weeks*7)
 }
 
 // Next week
-const nextWeek = addWeeks('2025-01-15T16:00:00.000Z', 1);
-// '2025-01-22T16:00:00.000Z'
+nextWeek := addWeeks(time.Date(2025, 1, 15, 16, 0, 0, 0, time.UTC), 1)
+// 2025-01-22T16:00:00Z
 ```
 
 ### Add Minutes
 
-```typescript
-function addMinutes(utcIso: string, minutes: number): string {
-  const date = new Date(utcIso);
-  date.setTime(date.getTime() + minutes * 60 * 1000);
-  return date.toISOString();
+```go
+func addMinutes(t time.Time, minutes int) time.Time {
+	return t.Add(time.Duration(minutes) * time.Minute)
 }
 
 // 30 minutes from now
-const later = addMinutes('2025-01-15T16:00:00.000Z', 30);
-// '2025-01-15T16:30:00.000Z'
+later := addMinutes(time.Date(2025, 1, 15, 16, 0, 0, 0, time.UTC), 30)
+// 2025-01-15T16:30:00Z
 ```
 
 ## Finding Specific Days
 
 ### Next Occurrence of Day of Week
 
-```typescript
-function getNextDayOfWeek(
-  fromUtc: Date,
-  targetDay: number, // 0=Sun, 1=Mon, ..., 6=Sat
-  timezone: string
-): Date {
-  const fromComponents = getComponentsInTimezone(fromUtc, timezone);
-  const currentDay = fromComponents.dayOfWeek;
+```go
+func getNextDayOfWeek(from time.Time, targetDay time.Weekday, tz string) (time.Time, error) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return time.Time{}, err
+	}
 
-  // Calculate days until target
-  let daysUntil = (targetDay - currentDay + 7) % 7;
-  if (daysUntil === 0) daysUntil = 7; // Always go to next occurrence
+	local := from.In(loc)
+	currentDay := local.Weekday()
 
-  const targetDate = new Date(fromUtc);
-  targetDate.setUTCDate(targetDate.getUTCDate() + daysUntil);
+	// Calculate days until target
+	daysUntil := int(targetDay-currentDay+7) % 7
+	if daysUntil == 0 {
+		daysUntil = 7 // Always go to next occurrence
+	}
 
-  return targetDate;
+	return from.AddDate(0, 0, daysUntil), nil
 }
 
 // Next Saturday from Wednesday Jan 15
-const nextSat = getNextDayOfWeek(
-  new Date('2025-01-15T17:00:00.000Z'),
-  6, // Saturday
-  'America/Los_Angeles'
-);
+nextSat, _ := getNextDayOfWeek(
+	time.Date(2025, 1, 15, 17, 0, 0, 0, time.UTC),
+	time.Saturday,
+	"America/Los_Angeles",
+)
 // Points to Jan 18
 ```
 
 ### Next Monday
 
-```typescript
-function getNextMonday(fromUtc: Date, timezone: string): Date {
-  return getNextDayOfWeek(fromUtc, 1, timezone);
+```go
+func getNextMonday(from time.Time, tz string) (time.Time, error) {
+	return getNextDayOfWeek(from, time.Monday, tz)
 }
 ```
 
 ### Next Weekday (Mon-Fri)
 
-```typescript
-function getNextWeekday(fromUtc: Date, timezone: string): Date {
-  const components = getComponentsInTimezone(fromUtc, timezone);
-  const dayOfWeek = components.dayOfWeek;
+```go
+func getNextWeekday(from time.Time, tz string) (time.Time, error) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return time.Time{}, err
+	}
 
-  let daysToAdd: number;
-  if (dayOfWeek === 5) {
-    // Friday -> Monday
-    daysToAdd = 3;
-  } else if (dayOfWeek === 6) {
-    // Saturday -> Monday
-    daysToAdd = 2;
-  } else {
-    // Sun-Thu -> next day
-    daysToAdd = 1;
-  }
+	local := from.In(loc)
+	dayOfWeek := local.Weekday()
 
-  const result = new Date(fromUtc);
-  result.setUTCDate(result.getUTCDate() + daysToAdd);
-  return result;
+	var daysToAdd int
+	switch dayOfWeek {
+	case time.Friday:
+		daysToAdd = 3 // Friday -> Monday
+	case time.Saturday:
+		daysToAdd = 2 // Saturday -> Monday
+	default:
+		daysToAdd = 1 // Sun-Thu -> next day
+	}
+
+	return from.AddDate(0, 0, daysToAdd), nil
 }
 ```
 
@@ -127,85 +122,63 @@ function getNextWeekday(fromUtc: Date, timezone: string): Date {
 
 ### Set Time in Display Timezone
 
-```typescript
-function setTimeInTimezone(baseUtc: Date, hour: number, minute: number, timezone: string): string {
-  const components = getComponentsInTimezone(baseUtc, timezone);
+```go
+func setTimeInTimezone(base time.Time, hour, minute int, tz string) (time.Time, error) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return time.Time{}, err
+	}
 
-  return createUtcFromTimezoneComponents(
-    components.year,
-    components.month,
-    components.day,
-    hour,
-    minute,
-    timezone
-  ).toISOString();
+	local := base.In(loc)
+	result := time.Date(local.Year(), local.Month(), local.Day(),
+		hour, minute, 0, 0, loc)
+	return result.UTC(), nil
 }
 
 // Set to 8am PT
-const morning = setTimeInTimezone(
-  new Date('2025-01-15T17:00:00.000Z'),
-  8,
-  0,
-  'America/Los_Angeles'
-);
-// '2025-01-15T16:00:00.000Z'
+morning, _ := setTimeInTimezone(
+	time.Date(2025, 1, 15, 17, 0, 0, 0, time.UTC),
+	8, 0, "America/Los_Angeles",
+)
+// 2025-01-15T16:00:00Z
 ```
 
 ### Tomorrow at Specific Time
 
-```typescript
-function tomorrowAt(fromUtc: Date, hour: number, minute: number, timezone: string): string {
-  const tomorrow = new Date(fromUtc);
-  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-
-  return setTimeInTimezone(tomorrow, hour, minute, timezone);
+```go
+func tomorrowAt(from time.Time, hour, minute int, tz string) (time.Time, error) {
+	tomorrow := from.AddDate(0, 0, 1)
+	return setTimeInTimezone(tomorrow, hour, minute, tz)
 }
 
 // Tomorrow at 8am PT
-const tomorrowMorning = tomorrowAt(
-  new Date('2025-01-15T17:00:00.000Z'),
-  8,
-  0,
-  'America/Los_Angeles'
-);
-// '2025-01-16T16:00:00.000Z'
+tomorrowMorning, _ := tomorrowAt(
+	time.Date(2025, 1, 15, 17, 0, 0, 0, time.UTC),
+	8, 0, "America/Los_Angeles",
+)
+// 2025-01-16T16:00:00Z
 ```
 
 ### Start of Day in Timezone
 
-```typescript
-function startOfDayInTimezone(utcIso: string, timezone: string): string {
-  const components = getComponentsInTimezone(new Date(utcIso), timezone);
-
-  return createUtcFromTimezoneComponents(
-    components.year,
-    components.month,
-    components.day,
-    0,
-    0,
-    timezone
-  ).toISOString();
+```go
+func startOfDayInTimezone(t time.Time, tz string) (time.Time, error) {
+	return setTimeInTimezone(t, 0, 0, tz)
 }
 
 // Start of Jan 15 in PT
-const startOfDay = startOfDayInTimezone('2025-01-15T17:00:00.000Z', 'America/Los_Angeles');
-// '2025-01-15T08:00:00.000Z' (midnight PT = 8am UTC)
+startOfDay, _ := startOfDayInTimezone(
+	time.Date(2025, 1, 15, 17, 0, 0, 0, time.UTC),
+	"America/Los_Angeles",
+)
+// 2025-01-15T08:00:00Z (midnight PT = 8am UTC)
 ```
 
 ### End of Day in Timezone
 
-```typescript
-function endOfDayInTimezone(utcIso: string, timezone: string): string {
-  const components = getComponentsInTimezone(new Date(utcIso), timezone);
-
-  return createUtcFromTimezoneComponents(
-    components.year,
-    components.month,
-    components.day,
-    23,
-    59,
-    timezone
-  ).toISOString();
+```go
+func endOfDayInTimezone(t time.Time, tz string) (time.Time, error) {
+	return setTimeInTimezone(t, 23, 59, tz)
 }
 ```
 
@@ -213,112 +186,99 @@ function endOfDayInTimezone(utcIso: string, timezone: string): string {
 
 ### Is Before/After
 
-```typescript
-function isBefore(utcIso1: string, utcIso2: string): boolean {
-  return new Date(utcIso1).getTime() < new Date(utcIso2).getTime();
-}
-
-function isAfter(utcIso1: string, utcIso2: string): boolean {
-  return new Date(utcIso1).getTime() > new Date(utcIso2).getTime();
-}
-
-function isBeforeOrEqual(utcIso1: string, utcIso2: string): boolean {
-  return new Date(utcIso1).getTime() <= new Date(utcIso2).getTime();
-}
+```go
+// time.Time has built-in comparison methods
+t1.Before(t2)      // true if t1 is before t2
+t1.After(t2)       // true if t1 is after t2
+t1.Equal(t2)       // true if t1 equals t2
+!t1.After(t2)      // before or equal
 ```
 
 ### Is Same Day in Timezone
 
-```typescript
-function isSameDay(utcIso1: string, utcIso2: string, timezone: string): boolean {
-  const c1 = getComponentsInTimezone(new Date(utcIso1), timezone);
-  const c2 = getComponentsInTimezone(new Date(utcIso2), timezone);
-
-  return c1.year === c2.year && c1.month === c2.month && c1.day === c2.day;
+```go
+func isSameDay(t1, t2 time.Time, tz string) (bool, error) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return false, err
+	}
+	l1 := t1.In(loc)
+	l2 := t2.In(loc)
+	return l1.Year() == l2.Year() &&
+		l1.Month() == l2.Month() &&
+		l1.Day() == l2.Day(), nil
 }
 
 // Both on Jan 15 in PT?
-const sameDay = isSameDay(
-  '2025-01-15T17:00:00.000Z',
-  '2025-01-15T23:00:00.000Z',
-  'America/Los_Angeles'
-);
+same, _ := isSameDay(
+	time.Date(2025, 1, 15, 17, 0, 0, 0, time.UTC),
+	time.Date(2025, 1, 15, 23, 0, 0, 0, time.UTC),
+	"America/Los_Angeles",
+)
 // true (9am PT and 3pm PT are same day)
 ```
 
-### Is Today in Timezone
+### Is Today / Is Tomorrow in Timezone
 
-```typescript
-function isToday(utcIso: string, nowUtc: Date, timezone: string): boolean {
-  return isSameDay(utcIso, nowUtc.toISOString(), timezone);
+```go
+func isToday(t, now time.Time, tz string) (bool, error) {
+	return isSameDay(t, now, tz)
 }
-```
 
-### Is Tomorrow in Timezone
-
-```typescript
-function isTomorrow(utcIso: string, nowUtc: Date, timezone: string): boolean {
-  const tomorrow = new Date(nowUtc);
-  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-
-  return isSameDay(utcIso, tomorrow.toISOString(), timezone);
+func isTomorrow(t, now time.Time, tz string) (bool, error) {
+	tomorrow := now.AddDate(0, 0, 1)
+	return isSameDay(t, tomorrow, tz)
 }
 ```
 
 ### Is Weekend in Timezone
 
-```typescript
-function isWeekend(utcIso: string, timezone: string): boolean {
-  const components = getComponentsInTimezone(new Date(utcIso), timezone);
-  return components.dayOfWeek === 0 || components.dayOfWeek === 6;
+```go
+func isWeekend(t time.Time, tz string) (bool, error) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return false, err
+	}
+	day := t.In(loc).Weekday()
+	return day == time.Saturday || day == time.Sunday, nil
 }
 ```
 
 ## Time Differences
 
-### Minutes Between
+### Minutes / Hours / Days Between
 
-```typescript
-function minutesBetween(startUtcIso: string, endUtcIso: string): number {
-  const startMs = new Date(startUtcIso).getTime();
-  const endMs = new Date(endUtcIso).getTime();
-  return Math.floor((endMs - startMs) / (60 * 1000));
+```go
+func minutesBetween(start, end time.Time) int {
+	return int(end.Sub(start).Minutes())
 }
-```
 
-### Hours Between
-
-```typescript
-function hoursBetween(startUtcIso: string, endUtcIso: string): number {
-  return Math.floor(minutesBetween(startUtcIso, endUtcIso) / 60);
+func hoursBetween(start, end time.Time) int {
+	return int(end.Sub(start).Hours())
 }
-```
 
-### Days Between
-
-```typescript
-function daysBetween(startUtcIso: string, endUtcIso: string): number {
-  return Math.floor(hoursBetween(startUtcIso, endUtcIso) / 24);
+func daysBetween(start, end time.Time) int {
+	return int(end.Sub(start).Hours() / 24)
 }
 ```
 
 ### Human-Readable Duration
 
-```typescript
-function formatDuration(startUtcIso: string, endUtcIso: string): string {
-  const minutes = minutesBetween(startUtcIso, endUtcIso);
+```go
+func formatDuration(start, end time.Time) string {
+	minutes := int(end.Sub(start).Minutes())
 
-  if (minutes < 60) {
-    return `${minutes} min`;
-  }
+	if minutes < 60 {
+		return fmt.Sprintf("%d min", minutes)
+	}
 
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    return `${hours}h ${minutes % 60}m`;
-  }
+	hours := minutes / 60
+	if hours < 24 {
+		return fmt.Sprintf("%dh %dm", hours, minutes%60)
+	}
 
-  const days = Math.floor(hours / 24);
-  return `${days}d ${hours % 24}h`;
+	days := hours / 24
+	return fmt.Sprintf("%dd %dh", days, hours%24)
 }
 ```
 
@@ -326,81 +286,96 @@ function formatDuration(startUtcIso: string, endUtcIso: string): string {
 
 ### Is Within Working Hours
 
-```typescript
-interface WorkingHours {
-  startHour: number;
-  endHour: number;
-  timezone: string;
-  workDays: number[]; // 1=Mon, 5=Fri
+```go
+// WorkingHours defines business hours in a timezone.
+type WorkingHours struct {
+	StartHour int
+	EndHour   int
+	Timezone  string
+	WorkDays  []time.Weekday
 }
 
-const DEFAULT_WORKING_HOURS: WorkingHours = {
-  startHour: 9,
-  endHour: 17,
-  timezone: 'America/Los_Angeles',
-  workDays: [1, 2, 3, 4, 5], // Mon-Fri
-};
+var DefaultWorkingHours = WorkingHours{
+	StartHour: 9,
+	EndHour:   17,
+	Timezone:  "America/Los_Angeles",
+	WorkDays:  []time.Weekday{time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday},
+}
 
-function isWithinWorkingHours(
-  utcIso: string,
-  hours: WorkingHours = DEFAULT_WORKING_HOURS
-): boolean {
-  const components = getComponentsInTimezone(new Date(utcIso), hours.timezone);
+func isWithinWorkingHours(t time.Time, hours WorkingHours) (bool, error) {
+	loc, err := time.LoadLocation(hours.Timezone)
+	if err != nil {
+		return false, err
+	}
+	lt := t.In(loc)
 
-  // Check day
-  if (!hours.workDays.includes(components.dayOfWeek)) {
-    return false;
-  }
+	// Check day
+	dayMatch := false
+	for _, d := range hours.WorkDays {
+		if lt.Weekday() == d {
+			dayMatch = true
+			break
+		}
+	}
+	if !dayMatch {
+		return false, nil
+	}
 
-  // Check hour
-  return components.hour >= hours.startHour && components.hour < hours.endHour;
+	// Check hour
+	return lt.Hour() >= hours.StartHour && lt.Hour() < hours.EndHour, nil
 }
 ```
 
 ### Next Working Hour
 
-```typescript
-function getNextWorkingHour(fromUtc: Date, hours: WorkingHours = DEFAULT_WORKING_HOURS): string {
-  const components = getComponentsInTimezone(fromUtc, hours.timezone);
+```go
+func getNextWorkingHour(from time.Time, hours WorkingHours) (time.Time, error) {
+	loc, err := time.LoadLocation(hours.Timezone)
+	if err != nil {
+		return time.Time{}, err
+	}
 
-  // If currently in working hours, return current time
-  if (
-    hours.workDays.includes(components.dayOfWeek) &&
-    components.hour >= hours.startHour &&
-    components.hour < hours.endHour
-  ) {
-    return fromUtc.toISOString();
-  }
+	lt := from.In(loc)
 
-  // Find next working day
-  let targetDate = new Date(fromUtc);
-  let daysChecked = 0;
+	// If currently in working hours, return current time
+	inHours, _ := isWithinWorkingHours(from, hours)
+	if inHours {
+		return from, nil
+	}
 
-  while (daysChecked < 7) {
-    const dayComponents = getComponentsInTimezone(targetDate, hours.timezone);
+	// Find next working day
+	target := from
+	for i := 0; i < 7; i++ {
+		tl := target.In(loc)
 
-    if (hours.workDays.includes(dayComponents.dayOfWeek)) {
-      // If today but after hours, or future working day
-      if (daysChecked > 0 || dayComponents.hour >= hours.endHour) {
-        // Move to start of this working day
-        if (daysChecked === 0) {
-          targetDate.setUTCDate(targetDate.getUTCDate() + 1);
-        }
-        return setTimeInTimezone(targetDate, hours.startHour, 0, hours.timezone);
-      }
+		isWorkDay := false
+		for _, d := range hours.WorkDays {
+			if tl.Weekday() == d {
+				isWorkDay = true
+				break
+			}
+		}
 
-      // Today before end, but before start
-      if (dayComponents.hour < hours.startHour) {
-        return setTimeInTimezone(targetDate, hours.startHour, 0, hours.timezone);
-      }
-    }
+		if isWorkDay {
+			if i > 0 || lt.Hour() >= hours.EndHour {
+				if i == 0 {
+					target = target.AddDate(0, 0, 1)
+				}
+				result, err := setTimeInTimezone(target, hours.StartHour, 0, hours.Timezone)
+				if err != nil {
+					return time.Time{}, err
+				}
+				return result, nil
+			}
+			if lt.Hour() < hours.StartHour {
+				return setTimeInTimezone(target, hours.StartHour, 0, hours.Timezone)
+			}
+		}
 
-    targetDate.setUTCDate(targetDate.getUTCDate() + 1);
-    daysChecked++;
-  }
+		target = target.AddDate(0, 0, 1)
+	}
 
-  // Fallback (shouldn't reach)
-  return fromUtc.toISOString();
+	return from, nil // Fallback
 }
 ```
 
@@ -408,41 +383,60 @@ function getNextWorkingHour(fromUtc: Date, hours: WorkingHours = DEFAULT_WORKING
 
 ### Defer Options
 
-```typescript
-type DeferOption = 'LATER_TODAY' | 'THIS_AFTERNOON' | 'TOMORROW' | 'THIS_WEEKEND' | 'NEXT_WEEK';
+```go
+// DeferOption represents a scheduling choice.
+type DeferOption int
 
-function computeDeferTime(option: DeferOption, fromUtc: Date, timezone: string): string {
-  const components = getComponentsInTimezone(fromUtc, timezone);
+const (
+	DeferLaterToday DeferOption = iota
+	DeferThisAfternoon
+	DeferTomorrow
+	DeferThisWeekend
+	DeferNextWeek
+)
 
-  switch (option) {
-    case 'LATER_TODAY': {
-      // 2 hours from now, but at least 10am
-      const targetHour = Math.max(components.hour + 2, 10);
-      return setTimeInTimezone(fromUtc, targetHour, 0, timezone);
-    }
+func computeDeferTime(option DeferOption, from time.Time, tz string) (time.Time, error) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return time.Time{}, err
+	}
+	lt := from.In(loc)
 
-    case 'THIS_AFTERNOON': {
-      // 1pm today
-      return setTimeInTimezone(fromUtc, 13, 0, timezone);
-    }
+	switch option {
+	case DeferLaterToday:
+		// 2 hours from now, but at least 10am
+		targetHour := lt.Hour() + 2
+		if targetHour < 10 {
+			targetHour = 10
+		}
+		return setTimeInTimezone(from, targetHour, 0, tz)
 
-    case 'TOMORROW': {
-      // 8am tomorrow
-      return tomorrowAt(fromUtc, 8, 0, timezone);
-    }
+	case DeferThisAfternoon:
+		// 1pm today
+		return setTimeInTimezone(from, 13, 0, tz)
 
-    case 'THIS_WEEKEND': {
-      // Saturday 8am
-      const saturday = getNextDayOfWeek(fromUtc, 6, timezone);
-      return setTimeInTimezone(saturday, 8, 0, timezone);
-    }
+	case DeferTomorrow:
+		// 8am tomorrow
+		return tomorrowAt(from, 8, 0, tz)
 
-    case 'NEXT_WEEK': {
-      // Monday 8am
-      const monday = getNextDayOfWeek(fromUtc, 1, timezone);
-      return setTimeInTimezone(monday, 8, 0, timezone);
-    }
-  }
+	case DeferThisWeekend:
+		// Saturday 8am
+		saturday, err := getNextDayOfWeek(from, time.Saturday, tz)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return setTimeInTimezone(saturday, 8, 0, tz)
+
+	case DeferNextWeek:
+		// Monday 8am
+		monday, err := getNextDayOfWeek(from, time.Monday, tz)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return setTimeInTimezone(monday, 8, 0, tz)
+	}
+
+	return from, nil
 }
 ```
 
@@ -450,108 +444,44 @@ function computeDeferTime(option: DeferOption, fromUtc: Date, timezone: string):
 
 ### Items Due Today
 
-```typescript
-function findDueToday(
-  items: Array<{ dueAt: string }>,
-  nowUtc: Date,
-  timezone: string
-): Array<{ dueAt: string }> {
-  return items.filter((item) => isToday(item.dueAt, nowUtc, timezone));
-}
-```
-
-### Items Due This Week
-
-```typescript
-function findDueThisWeek(
-  items: Array<{ dueAt: string }>,
-  nowUtc: Date,
-  timezone: string
-): Array<{ dueAt: string }> {
-  const nowComponents = getComponentsInTimezone(nowUtc, timezone);
-
-  // Calculate start of week (Monday)
-  const daysFromMonday = (nowComponents.dayOfWeek + 6) % 7;
-  const startOfWeek = new Date(nowUtc);
-  startOfWeek.setUTCDate(startOfWeek.getUTCDate() - daysFromMonday);
-  const weekStart = startOfDayInTimezone(startOfWeek.toISOString(), timezone);
-
-  // End of week (Sunday night)
-  const endOfWeek = new Date(startOfWeek);
-  endOfWeek.setUTCDate(endOfWeek.getUTCDate() + 6);
-  const weekEnd = endOfDayInTimezone(endOfWeek.toISOString(), timezone);
-
-  return items.filter((item) => isAfter(item.dueAt, weekStart) && isBefore(item.dueAt, weekEnd));
+```go
+func findDueToday(items []DueItem, now time.Time, tz string) ([]DueItem, error) {
+	var result []DueItem
+	for _, item := range items {
+		today, err := isToday(item.DueAt, now, tz)
+		if err != nil {
+			return nil, err
+		}
+		if today {
+			result = append(result, item)
+		}
+	}
+	return result, nil
 }
 ```
 
 ### Overdue Items
 
-```typescript
-function findOverdue(items: Array<{ dueAt: string }>, nowUtc: string): Array<{ dueAt: string }> {
-  return items.filter((item) => isBefore(item.dueAt, nowUtc));
+```go
+func findOverdue(items []DueItem, now time.Time) []DueItem {
+	var result []DueItem
+	for _, item := range items {
+		if item.DueAt.Before(now) {
+			result = append(result, item)
+		}
+	}
+	return result
 }
-```
-
-## Complete Utility Module
-
-```typescript
-// src/utils/datetime.ts
-
-export const DISPLAY_TIMEZONE = 'America/Los_Angeles';
-
-export function getComponentsInTimezone(
-  date: Date,
-  timezone: string
-): { year: number; month: number; day: number; hour: number; minute: number; dayOfWeek: number } {
-  // ... implementation from timezone-conversion.md
-}
-
-export function createUtcFromTimezoneComponents(
-  year: number,
-  month: number,
-  day: number,
-  hour: number,
-  minute: number,
-  timezone: string
-): Date {
-  // ... implementation from timezone-conversion.md
-}
-
-export function formatForDisplay(utcIso: string, timezone: string): string {
-  // ... implementation
-}
-
-export function addHours(utcIso: string, hours: number): string {
-  /* ... */
-}
-export function addDays(utcIso: string, days: number): string {
-  /* ... */
-}
-export function isBefore(a: string, b: string): boolean {
-  /* ... */
-}
-export function isAfter(a: string, b: string): boolean {
-  /* ... */
-}
-export function isSameDay(a: string, b: string, tz: string): boolean {
-  /* ... */
-}
-export function isToday(utcIso: string, now: Date, tz: string): boolean {
-  /* ... */
-}
-
-// ... and other helpers as needed
 ```
 
 ## Summary
 
 Common patterns for datetime operations:
 
-- **Adding time**: Work in milliseconds or use UTC methods
-- **Finding days**: Calculate day-of-week in display timezone
-- **Setting times**: Convert timezone components to UTC
-- **Comparing**: Use milliseconds or ISO string comparison
-- **Durations**: Calculate difference in milliseconds, convert to units
+- **Adding time**: Use `time.Add` for durations, `time.AddDate` for calendar math
+- **Finding days**: Calculate day-of-week with `time.In(loc).Weekday()`
+- **Setting times**: Use `time.Date` with `*Location`, then `.UTC()`
+- **Comparing**: Use `Before`/`After`/`Equal` directly on `time.Time`
+- **Durations**: Use `time.Sub` to get `time.Duration`, then convert
 - **Working hours**: Check day-of-week and hour in display timezone
 - **Scheduling**: Combine day-finding with time-setting helpers

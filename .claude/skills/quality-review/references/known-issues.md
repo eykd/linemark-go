@@ -29,7 +29,7 @@ GitHub Actions workflows generate `known-issues.json` containing beads tasks alr
   {
     "id": "workspace-124",
     "title": "Add tests for edge cases",
-    "description": "Missing tests for null/undefined inputs",
+    "description": "Missing tests for nil inputs",
     "status": "ready",
     "priority": "P2",
     "tags": ["test", "quality"],
@@ -84,11 +84,12 @@ fi
 
 Before analyzing PR changes:
 
-```typescript
+```go
 // Pseudocode for skill logic
-let knownIssues = [];
-if (fileExists('known-issues.json')) {
-  knownIssues = JSON.parse(readFile('known-issues.json'));
+var knownIssues []KnownIssue
+data, err := os.ReadFile("known-issues.json")
+if err == nil {
+	_ = json.Unmarshal(data, &knownIssues)
 }
 ```
 
@@ -98,35 +99,36 @@ if (fileExists('known-issues.json')) {
 
 Extract relevant information from known issues:
 
-```typescript
+```go
 // Pseudocode
-const trackedIssues = knownIssues
-  .filter((task) => task.status === 'open' || task.status === 'ready')
-  .map((task) => ({
-    id: task.id,
-    title: task.title,
-    description: task.description,
-    tags: task.tags,
-  }));
+var tracked []TrackedIssue
+for _, task := range knownIssues {
+	if task.Status == "open" || task.Status == "ready" {
+		tracked = append(tracked, TrackedIssue{
+			ID:          task.ID,
+			Title:       task.Title,
+			Description: task.Description,
+			Tags:        task.Tags,
+		})
+	}
+}
 ```
 
 ### 3. Match Findings
 
 When generating a finding, check if it relates to a known issue:
 
-```typescript
+```go
 // Pseudocode
-function checkKnownIssue(finding, knownIssues) {
-  for (const issue of knownIssues) {
-    if (
-      finding.file.includes(issue.title) ||
-      finding.description.includes(issue.description) ||
-      finding.tags.some((tag) => issue.tags.includes(tag))
-    ) {
-      return issue.id;
-    }
-  }
-  return null;
+func checkKnownIssue(finding Finding, knownIssues []KnownIssue) string {
+	for _, issue := range knownIssues {
+		if strings.Contains(finding.File, issue.Title) ||
+			strings.Contains(finding.Description, issue.Description) ||
+			hasOverlappingTags(finding.Tags, issue.Tags) {
+			return issue.ID
+		}
+	}
+	return ""
 }
 ```
 
@@ -145,7 +147,7 @@ When a finding matches a known issue:
 ```markdown
 <!-- Don't report as new finding -->
 
-Note: Email validation issue in src/auth/register.ts:45 is tracked in beads task workspace-123
+Note: Email validation issue in internal/auth/register.go:45 is tracked in beads task workspace-123
 ```
 
 **Option B: Reference and enhance**
@@ -154,8 +156,8 @@ Note: Email validation issue in src/auth/register.ts:45 is tracked in beads task
 ### Finding: Email validation allows invalid domains
 
 - **Related to beads task**: workspace-123
-- **File**: src/auth/register.ts:45
-- **Additional context**: Also affects src/auth/login.ts:67 (not in original task)
+- **File**: internal/auth/register.go:45
+- **Additional context**: Also affects internal/auth/login.go:67 (not in original task)
 - **Fix**: See beads task for detailed fix plan
 ```
 
@@ -182,7 +184,7 @@ When referencing a known issue in review output:
 ### Finding: Missing error handling
 
 - **Related to beads task**: workspace-125
-- **File**: src/api/handler.ts:30
+- **File**: internal/api/handler.go:30
 - **Description**: No error handling for network failures
 - **Impact**: [same as normal finding]
 - **Fix**: See beads task workspace-125 for implementation plan
@@ -219,10 +221,10 @@ This PR addresses several quality concerns:
 
 **Code**:
 
-```typescript
-if (!fileExists('known-issues.json')) {
-  // Report all findings without filtering
-  return findings;
+```go
+if _, err := os.Stat("known-issues.json"); os.IsNotExist(err) {
+	// Report all findings without filtering
+	return findings, nil
 }
 ```
 
@@ -234,11 +236,12 @@ if (!fileExists('known-issues.json')) {
 
 **Code**:
 
-```typescript
-const knownIssues = JSON.parse(readFile('known-issues.json'));
-if (knownIssues.length === 0) {
-  // Report all findings without filtering
-  return findings;
+```go
+var knownIssues []KnownIssue
+_ = json.Unmarshal(data, &knownIssues)
+if len(knownIssues) == 0 {
+	// Report all findings without filtering
+	return findings, nil
 }
 ```
 
@@ -250,12 +253,11 @@ if (knownIssues.length === 0) {
 
 **Code**:
 
-```typescript
-try {
-  const knownIssues = JSON.parse(readFile('known-issues.json'));
-} catch (error) {
-  console.warn('Failed to parse known-issues.json, reporting all findings');
-  return findings;
+```go
+var knownIssues []KnownIssue
+if err := json.Unmarshal(data, &knownIssues); err != nil {
+	log.Printf("Warning: failed to parse known-issues.json: %v", err)
+	return findings, nil
 }
 ```
 
@@ -305,19 +307,19 @@ Added user registration endpoint with email validation.
 The following issues are already tracked in beads:
 
 - **workspace-123** (in progress): Email validation regex needs improvement
-- **workspace-124** (ready): Missing tests for null email input
+- **workspace-124** (ready): Missing tests for nil email input
 
 ### Does It Work
 
-✅ Core registration logic works correctly
-✅ Password hashing implemented properly
-⚠️ Email validation improvements tracked in workspace-123
+- Core registration logic works correctly
+- Password hashing implemented properly
+- Email validation improvements tracked in workspace-123
 
 ### Test Quality
 
-❌ Missing edge case tests (tracked in workspace-124)
-✅ Happy path tests are well-written
-✅ 100% coverage for new code
+- Missing edge case tests (tracked in workspace-124)
+- Happy path tests are well-written
+- 100% coverage for new code
 
 ### Findings
 
@@ -327,24 +329,27 @@ None - all issues are tracked in beads or have been addressed.
 
 #### Should Fix
 
-1. **Extract validation to utility** - src/auth/register.ts:45
+1. **Extract validation to utility** - internal/auth/register.go:45
    - **Problem**: Email validation duplicated in register and login
    - **Impact**: Maintenance burden
    - **Fix**: Extract to shared validateEmail() utility
 
 ## Summary
 
-This PR makes good progress on user registration. The two main quality concerns (email validation and edge case tests) are already tracked in beads tasks workspace-123 and workspace-124.
+This PR makes good progress on user registration. The two main quality
+concerns (email validation and edge case tests) are already tracked in
+beads tasks workspace-123 and workspace-124.
 
-One new "Should Fix" item identified: extract validation logic to avoid duplication.
+One new "Should Fix" item identified: extract validation logic to avoid
+duplication.
 ```
 
 ---
 
 ## Quick Reference
 
-**Check for file**: `fileExists('known-issues.json')`
-**Parse safely**: Wrap in try-catch
+**Check for file**: `os.Stat("known-issues.json")`
+**Parse safely**: Check `json.Unmarshal` error
 **Filter statuses**: Include "open" and "ready" only
 **Match findings**: Compare file, description, tags
 **Reference format**: `Related to beads task workspace-123`

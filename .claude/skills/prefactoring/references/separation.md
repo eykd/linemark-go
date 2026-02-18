@@ -15,60 +15,87 @@
 
 Every piece of knowledge has a single, authoritative representation.
 
-```typescript
+```go
 // Bad: Duplicated validation logic
-function createUser(email: string): void {
-  if (!email.includes('@')) throw new Error('Invalid');
+func CreateUser(email string) error {
+    if !strings.Contains(email, "@") {
+        return errors.New("invalid email")
+    }
+    // ...
+    return nil
 }
-function updateEmail(email: string): void {
-  if (!email.includes('@')) throw new Error('Invalid');
+
+func UpdateEmail(email string) error {
+    if !strings.Contains(email, "@") {
+        return errors.New("invalid email")
+    }
+    // ...
+    return nil
 }
 
 // Good: Single source of truth
-class Email {
-  constructor(value: string) {
-    if (!value.includes('@')) throw new InvalidEmailError(value);
-  }
+type Email struct {
+    value string
 }
 
-function createUser(email: Email): void {}
-function updateEmail(email: Email): void {}
+func NewEmail(value string) (Email, error) {
+    if !strings.Contains(value, "@") {
+        return Email{}, &InvalidEmailError{Value: value}
+    }
+    return Email{value: value}, nil
+}
+
+func CreateUser(email Email) error { return nil }
+func UpdateEmail(email Email) error { return nil }
 ```
 
 ### Separate Policy from Implementation
 
 Keep the "what" separate from the "how" for flexibility and clarity.
 
-```typescript
+```go
 // Bad: Policy mixed with implementation
-function calculateDiscount(order: Order): number {
-  if (order.total > 1000) return order.total * 0.1;
-  if (order.items.length > 10) return order.total * 0.05;
-  return 0;
+func CalculateDiscount(order Order) float64 {
+    if order.Total > 1000 {
+        return order.Total * 0.1
+    }
+    if len(order.Items) > 10 {
+        return order.Total * 0.05
+    }
+    return 0
 }
 
 // Good: Policy separate from implementation
-interface DiscountPolicy {
-  applies(order: Order): boolean;
-  calculate(order: Order): Money;
+type DiscountPolicy interface {
+    Applies(order Order) bool
+    Calculate(order Order) Money
 }
 
-class BulkOrderDiscount implements DiscountPolicy {
-  applies(order: Order): boolean {
-    return order.total.exceeds(BULK_THRESHOLD);
-  }
-  calculate(order: Order): Money {
-    return order.total.multiply(0.1);
-  }
+type BulkOrderDiscount struct{}
+
+func (d BulkOrderDiscount) Applies(order Order) bool {
+    return order.Total.Exceeds(BulkThreshold)
 }
 
-class DiscountCalculator {
-  constructor(private policies: DiscountPolicy[]) {}
+func (d BulkOrderDiscount) Calculate(order Order) Money {
+    return order.Total.Multiply(0.1)
+}
 
-  calculate(order: Order): Money {
-    const applicable = this.policies.find((p) => p.applies(order));
-    return applicable?.calculate(order) ?? Money.zero();
-  }
+type DiscountCalculator struct {
+    policies []DiscountPolicy
+}
+
+func NewDiscountCalculator(policies []DiscountPolicy) *DiscountCalculator {
+    return &DiscountCalculator{policies: policies}
+}
+
+func (c *DiscountCalculator) Calculate(order Order) Money {
+    for _, p := range c.policies {
+        if p.Applies(order) {
+            return p.Calculate(order)
+        }
+    }
+    return MoneyZero()
 }
 ```
 
@@ -76,44 +103,57 @@ class DiscountCalculator {
 
 Solve the specific problem first. Generalize when patterns emerge.
 
-```typescript
+```go
 // Bad: Premature abstraction before second use case
-interface DataProcessor<T, R> {
-  process(input: T): R;
-  validate(input: T): boolean;
-  transform(input: T): T;
+type DataProcessor[T any, R any] interface {
+    Process(input T) R
+    Validate(input T) bool
+    Transform(input T) T
 }
 
 // Good: Solve specific problem first
-function processUserRegistration(data: RegistrationData): User {
-  // Implement specifically for this use case
+func ProcessUserRegistration(data RegistrationData) (User, error) {
+    // Implement specifically for this use case
+    return User{}, nil
 }
 
 // Later, when you have 2-3 similar cases, THEN abstract
-function processOrderSubmission(data: OrderData): Order {
-  // If pattern emerges, consider shared abstraction
+func ProcessOrderSubmission(data OrderData) (Order, error) {
+    // If pattern emerges, consider shared abstraction
+    return Order{}, nil
 }
 ```
 
-### Adapt a Prefactoring Attitude
+### Adopt a Prefactoring Attitude
 
 Eliminate duplication before it occurs. Look for patterns during design.
 
-```typescript
+```go
 // Before implementing feature #2, check if it shares logic with feature #1
 // If so, extract shared logic BEFORE implementing #2
 
 // Example: Before adding SMS notifications alongside email
-interface NotificationChannel {
-  send(recipient: Recipient, message: Message): Promise<void>;
+type NotificationChannel interface {
+    Send(recipient Recipient, message Message) error
 }
 
-// Now both implementations follow same pattern
-class EmailChannel implements NotificationChannel {
-  /* ... */
+// Now both implementations follow the same pattern
+type EmailChannel struct {
+    // ...
 }
-class SmsChannel implements NotificationChannel {
-  /* ... */
+
+func (c *EmailChannel) Send(recipient Recipient, message Message) error {
+    // ...
+    return nil
+}
+
+type SMSChannel struct {
+    // ...
+}
+
+func (c *SMSChannel) Send(recipient Recipient, message Message) error {
+    // ...
+    return nil
 }
 ```
 
@@ -138,4 +178,4 @@ Rule of Three:
 ## Related References
 
 - [naming.md](./naming.md): Naming extracted abstractions
-- [architecture.md](./architecture.md): Module-level separation
+- [architecture.md](./architecture.md): Package-level separation

@@ -17,10 +17,10 @@ Domain code must be pure—no external dependencies.
 
 **Bad:**
 
-```typescript
-// src/domain/entities/User.ts
-import { D1Database } from '@cloudflare/workers-types'; // ❌
-import { PrismaClient } from '@prisma/client'; // ❌
+```go
+// internal/domain/entity/user.go
+import "database/sql"           // ❌
+import "github.com/jmoiron/sqlx" // ❌
 ```
 
 **Fix:** Remove all infrastructure imports. Domain entities should only import other domain types.
@@ -29,30 +29,54 @@ import { PrismaClient } from '@prisma/client'; // ❌
 
 **Bad:**
 
-```typescript
-// src/domain/services/UserService.ts
-export class UserService {
-  async findUser(db: D1Database, id: string) {
-    // ❌
-    return db.prepare('SELECT * FROM users WHERE id = ?').bind(id).first();
-  }
+```go
+// internal/domain/service/user_service.go
+package service
+
+import "database/sql" // ❌
+
+type UserService struct {
+	db *sql.DB // ❌
+}
+
+func (s *UserService) FindUser(id string) (*User, error) {
+	row := s.db.QueryRow("SELECT * FROM users WHERE id = ?", id) // ❌
+	// ...
 }
 ```
 
 **Fix:** Define repository interface in domain, inject implementation:
 
-```typescript
-// src/domain/interfaces/UserRepository.ts
-export interface UserRepository {
-  findById(id: string): Promise<User | null>;
+```go
+// internal/domain/port/user_repository.go
+package port
+
+import "myapp/internal/domain/entity"
+
+type UserRepository interface {
+	FindByID(id string) (*entity.User, error)
+}
+```
+
+```go
+// internal/domain/service/user_service.go
+package service
+
+import (
+	"myapp/internal/domain/entity"
+	"myapp/internal/domain/port"
+)
+
+type UserService struct {
+	userRepo port.UserRepository
 }
 
-// src/domain/services/UserService.ts
-export class UserService {
-  constructor(private userRepo: UserRepository) {}
-  async findUser(id: string) {
-    return this.userRepo.findById(id);
-  }
+func NewUserService(repo port.UserRepository) *UserService {
+	return &UserService{userRepo: repo}
+}
+
+func (s *UserService) FindUser(id string) (*entity.User, error) {
+	return s.userRepo.FindByID(id)
 }
 ```
 
@@ -60,29 +84,41 @@ export class UserService {
 
 **Bad:**
 
-```typescript
-// src/domain/entities/Task.ts
-import { Request } from '@cloudflare/workers-types'; // ❌
+```go
+// internal/domain/entity/task.go
+package entity
 
-export class Task {
-  static fromRequest(req: Request) { ... } // ❌
+import "net/http" // ❌
+
+func TaskFromRequest(r *http.Request) (*Task, error) { // ❌
+	// ...
 }
 ```
 
 **Fix:** Use plain DTOs. Parse requests in presentation layer.
 
-### Async Operations for Non-Essential Logic
+### External API Calls in Domain Logic
 
 **Bad:**
 
-```typescript
-// src/domain/entities/Order.ts
-export class Order {
-  async calculateTotal() {
-    // ❌ - fetches exchange rates
-    const rate = await fetch('https://api.exchange.com/rate');
-    return this.amount * rate;
-  }
+```go
+// internal/domain/entity/order.go
+package entity
+
+import (
+	"encoding/json"
+	"net/http" // ❌
+)
+
+func (o *Order) CalculateTotal() (float64, error) {
+	resp, err := http.Get("https://api.exchange.com/rate") // ❌
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	var rate float64
+	json.NewDecoder(resp.Body).Decode(&rate)
+	return o.Amount * rate, nil
 }
 ```
 
@@ -98,28 +134,38 @@ Application layer orchestrates domain objects but must not know infrastructure d
 
 **Bad:**
 
-```typescript
-// src/application/use-cases/CreateUser.ts
-import { D1UserRepository } from '@infrastructure/repositories/D1UserRepository'; // ❌
+```go
+// internal/application/usecase/create_user.go
+package usecase
 
-export class CreateUser {
-  async execute(data: CreateUserRequest) {
-    const repo = new D1UserRepository(db); // ❌
-    // ...
-  }
+import "myapp/internal/infrastructure/repository" // ❌
+
+type CreateUser struct{}
+
+func (uc *CreateUser) Execute(data CreateUserRequest) error {
+	repo := repository.NewSQLUserRepository(db) // ❌
+	// ...
 }
 ```
 
 **Fix:** Accept interface via constructor:
 
-```typescript
-import type { UserRepository } from '@domain/interfaces/UserRepository';
+```go
+// internal/application/usecase/create_user.go
+package usecase
 
-export class CreateUser {
-  constructor(private userRepo: UserRepository) {} // ✓
-  async execute(data: CreateUserRequest) {
-    // use this.userRepo
-  }
+import "myapp/internal/domain/port"
+
+type CreateUser struct {
+	userRepo port.UserRepository // ✓
+}
+
+func NewCreateUser(repo port.UserRepository) *CreateUser {
+	return &CreateUser{userRepo: repo}
+}
+
+func (uc *CreateUser) Execute(data CreateUserRequest) error {
+	// use uc.userRepo
 }
 ```
 
@@ -127,26 +173,29 @@ export class CreateUser {
 
 **Bad:**
 
-```typescript
-// src/application/use-cases/GetTasks.ts
-import { Request, Response } from '@cloudflare/workers-types'; // ❌
+```go
+// internal/application/usecase/get_tasks.go
+package usecase
 
-export class GetTasks {
-  async execute(request: Request): Promise<Response> {
-    // ❌
-    // ...
-  }
+import "net/http" // ❌
+
+type GetTasks struct{}
+
+func (uc *GetTasks) Execute(r *http.Request) (*http.Response, error) { // ❌
+	// ...
 }
 ```
 
 **Fix:** Use plain DTOs:
 
-```typescript
-export class GetTasks {
-  async execute(query: GetTasksQuery): Promise<TaskResponse[]> {
-    // ✓
-    // ...
-  }
+```go
+// internal/application/usecase/get_tasks.go
+package usecase
+
+type GetTasks struct{}
+
+func (uc *GetTasks) Execute(query GetTasksQuery) ([]TaskResponse, error) { // ✓
+	// ...
 }
 ```
 
@@ -154,29 +203,47 @@ export class GetTasks {
 
 **Bad:**
 
-```typescript
-// src/application/use-cases/SendNotification.ts
-export class SendNotification {
-  async execute(userId: string) {
-    await fetch('https://api.sendgrid.com/send', { ... }); // ❌
-  }
+```go
+// internal/application/usecase/send_notification.go
+package usecase
+
+import "net/http" // ❌
+
+type SendNotification struct{}
+
+func (uc *SendNotification) Execute(userID string) error {
+	_, err := http.Post("https://api.sendgrid.com/send", "application/json", body) // ❌
+	return err
 }
 ```
 
 **Fix:** Define port interface, inject adapter:
 
-```typescript
-// src/domain/interfaces/NotificationService.ts
-export interface NotificationService {
-  send(to: string, message: string): Promise<void>;
+```go
+// internal/domain/port/notification_service.go
+package port
+
+type NotificationService interface {
+	Send(to string, message string) error
+}
+```
+
+```go
+// internal/application/usecase/send_notification.go
+package usecase
+
+import "myapp/internal/domain/port"
+
+type SendNotification struct {
+	notifier port.NotificationService
 }
 
-// src/application/use-cases/SendNotification.ts
-export class SendNotification {
-  constructor(private notifier: NotificationService) {}
-  async execute(userId: string) {
-    await this.notifier.send(userId, 'Hello');
-  }
+func NewSendNotification(notifier port.NotificationService) *SendNotification {
+	return &SendNotification{notifier: notifier}
+}
+
+func (uc *SendNotification) Execute(userID string) error {
+	return uc.notifier.Send(userID, "Hello")
 }
 ```
 
@@ -191,39 +258,44 @@ Repository interfaces are ports—they belong in the domain layer.
 **Bad:**
 
 ```
-src/infrastructure/repositories/
-├── UserRepository.ts      # Interface defined here ❌
-└── D1UserRepository.ts    # Implementation
+internal/infrastructure/repository/
+├── user_repository.go         # Interface defined here ❌
+└── sql_user_repository.go     # Implementation
 ```
 
 **Fix:**
 
 ```
-src/domain/interfaces/
-└── UserRepository.ts      # Interface here ✓
+internal/domain/port/
+└── user_repository.go         # Interface here ✓
 
-src/infrastructure/repositories/
-└── D1UserRepository.ts    # Implementation imports interface
+internal/infrastructure/repository/
+└── sql_user_repository.go     # Implementation imports interface
 ```
 
 ### Interface Importing Implementation Types
 
 **Bad:**
 
-```typescript
-// src/domain/interfaces/CacheService.ts
-import { KVNamespace } from '@cloudflare/workers-types'; // ❌
+```go
+// internal/domain/port/cache_service.go
+package port
 
-export interface CacheService {
-  get(key: string, kv: KVNamespace): Promise<string | null>; // ❌
+import "github.com/go-redis/redis/v8" // ❌
+
+type CacheService interface {
+	Get(key string, client *redis.Client) (string, error) // ❌
 }
 ```
 
 **Fix:** Keep interface pure:
 
-```typescript
-export interface CacheService {
-  get(key: string): Promise<string | null>; // ✓
+```go
+// internal/domain/port/cache_service.go
+package port
+
+type CacheService interface {
+	Get(key string) (string, error) // ✓
 }
 ```
 
@@ -231,43 +303,55 @@ export interface CacheService {
 
 ## Common Framework Violations
 
-### Cloudflare Workers
+### net/http in Domain/Application
 
 Violation indicators:
 
-- `@cloudflare/workers-types` in domain/application
-- `D1Database`, `KVNamespace`, `DurableObject` in domain
-- `Env` type in domain entities
+- `"net/http"` imported in domain or application packages
+- `http.Request`, `http.Response`, `http.Handler` in domain
+- `http.StatusOK` or other HTTP constants in domain
 
-### Express/Fastify/Hono
-
-Violation indicators:
-
-- `Request`, `Response`, `Context` in domain/application
-- Middleware references in use cases
-- Route handlers in application layer
-
-### Database ORMs
+### database/sql in Domain
 
 Violation indicators:
 
-- Prisma/TypeORM/Drizzle decorators on domain entities
-- `@Entity()`, `@Column()` in domain
-- Database client types in domain interfaces
+- `"database/sql"` imported in domain packages
+- `sql.DB`, `sql.Tx`, `sql.Row` in domain entities or services
+- Database driver imports in domain (e.g., `github.com/lib/pq`)
+
+### ORM Libraries in Domain
+
+Violation indicators:
+
+- GORM struct tags (`gorm:"column:name"`) on domain entities
+- `"gorm.io/gorm"` imported in domain
+- Ent/SQLBoiler generated types used as domain entities
+- Database-specific struct tags in domain (e.g., `db:"column_name"`)
 
 ### Validation Libraries
 
-**Acceptable:** Using Zod/Yup in application layer DTOs
-**Violation:** Decorators/validators directly on domain entities
+**Acceptable:** Using validator tags or validation logic in application layer DTOs
+**Violation:** Validation library imports directly on domain entities
 
-```typescript
+```go
 // Bad - domain entity
-import { z } from 'zod'; // ❌ in domain
-export class User {
-  @IsEmail() email: string; // ❌
-}
+// internal/domain/entity/user.go
+package entity
 
+import "github.com/go-playground/validator/v10" // ❌ in domain
+
+type User struct {
+	Email string `validate:"required,email"` // ❌
+}
+```
+
+```go
 // Good - application DTO
-import { z } from 'zod';
-export const CreateUserSchema = z.object({ ... }); // ✓ in application/dto
+// internal/application/dto/create_user.go
+package dto
+
+type CreateUserRequest struct {
+	Email string `validate:"required,email"` // ✓ in application/dto
+	Name  string `validate:"required"`
+}
 ```

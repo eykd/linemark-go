@@ -15,18 +15,22 @@
 
 Document and enforce preconditions, postconditions, and invariants.
 
-```typescript
-/**
- * Transfers money between accounts.
- * @precondition Both accounts must exist and be active
- * @precondition source account must have sufficient balance
- * @postcondition source.balance = source.balance - amount
- * @postcondition target.balance = target.balance + amount
- * @throws InsufficientFundsError if balance too low
- * @throws AccountNotFoundError if account doesn't exist
- */
-interface TransferService {
-  transfer(source: AccountId, target: AccountId, amount: Money): Promise<void>;
+```go
+// TransferService transfers money between accounts.
+//
+// Preconditions:
+//   - Both accounts must exist and be active.
+//   - Source account must have sufficient balance.
+//
+// Postconditions:
+//   - source.Balance = source.Balance - amount
+//   - target.Balance = target.Balance + amount
+//
+// Errors:
+//   - InsufficientFundsError if balance is too low.
+//   - AccountNotFoundError if an account does not exist.
+type TransferService interface {
+    Transfer(source AccountID, target AccountID, amount Money) error
 }
 ```
 
@@ -34,20 +38,32 @@ interface TransferService {
 
 Validate at every system boundary. Fail fast with clear error messages.
 
-```typescript
-class CreateUserHandler {
-  async handle(request: unknown): Promise<Response> {
+```go
+type CreateUserHandler struct {
+    useCase CreateUserUseCase
+}
+
+func (h *CreateUserHandler) Handle(r *http.Request) (*http.Response, error) {
     // Validate at entry point
-    const validated = this.validate(request);
-    if (!validated.success) {
-      return Response.json({ errors: validated.errors }, { status: 400 });
+    var req CreateUserRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        return nil, &ValidationError{Message: "invalid request body"}
+    }
+    if errs := req.Validate(); len(errs) > 0 {
+        return jsonResponse(http.StatusBadRequest, map[string]any{"errors": errs})
     }
 
     // Domain types are already valid
-    const email = new Email(validated.data.email);
-    const user = await this.useCase.execute(email);
-    return Response.json(user);
-  }
+    email, err := NewEmail(req.Email)
+    if err != nil {
+        return jsonResponse(http.StatusBadRequest, map[string]any{"error": err.Error()})
+    }
+
+    user, err := h.useCase.Execute(email)
+    if err != nil {
+        return nil, err
+    }
+    return jsonResponse(http.StatusOK, user)
 }
 ```
 
@@ -55,43 +71,68 @@ class CreateUserHandler {
 
 Test contracts, not internal details. Enable refactoring without breaking tests.
 
-```typescript
+```go
 // Bad: Tests implementation details
-it('should call repository.save with correct SQL', () => {
-  expect(mockDb.query).toHaveBeenCalledWith('INSERT INTO...');
-});
+func TestSave_CallsCorrectSQL(t *testing.T) {
+    // Checking exact SQL strings couples tests to implementation
+}
 
 // Good: Tests contract
-it('should persist user and return with ID', async () => {
-  const user = User.create({ email: new Email('test@example.com') });
-  const saved = await repository.save(user);
+func TestSave_PersistsUserAndReturnsWithID(t *testing.T) {
+    email, _ := NewEmail("test@example.com")
+    user := NewUser(email)
 
-  expect(saved.id).toBeDefined();
-  const retrieved = await repository.findById(saved.id);
-  expect(retrieved?.email).toEqual(user.email);
-});
+    saved, err := repository.Save(user)
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    if saved.ID == "" {
+        t.Fatal("expected saved user to have an ID")
+    }
+
+    retrieved, err := repository.FindByID(saved.ID)
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    if retrieved.Email != user.Email {
+        t.Errorf("got email %v, want %v", retrieved.Email, user.Email)
+    }
+}
 ```
 
 ### Build Flexibility for Testing
 
 Design with dependency injection and clear interfaces.
 
-```typescript
-// Testable design: dependencies injected
-class OrderService {
-  constructor(
-    private readonly repository: OrderRepository,
-    private readonly paymentGateway: PaymentGateway,
-    private readonly notifier: OrderNotifier
-  ) {}
+```go
+// Testable design: dependencies injected via constructor
+type OrderService struct {
+    repository     OrderRepository
+    paymentGateway PaymentGateway
+    notifier       OrderNotifier
+}
+
+func NewOrderService(
+    repo OrderRepository,
+    gateway PaymentGateway,
+    notifier OrderNotifier,
+) *OrderService {
+    return &OrderService{
+        repository:     repo,
+        paymentGateway: gateway,
+        notifier:       notifier,
+    }
 }
 
 // In tests: inject test doubles
-const service = new OrderService(
-  new InMemoryOrderRepository(),
-  new MockPaymentGateway(),
-  new SpyOrderNotifier()
-);
+func TestOrderService(t *testing.T) {
+    service := NewOrderService(
+        &InMemoryOrderRepository{},
+        &MockPaymentGateway{},
+        &SpyOrderNotifier{},
+    )
+    // ...
+}
 ```
 
 ## Decision Matrix
@@ -106,4 +147,4 @@ const service = new OrderService(
 ## Related References
 
 - [error-handling.md](./error-handling.md): Error strategies and messaging
-- [architecture.md](./architecture.md): Interface design at module level
+- [architecture.md](./architecture.md): Interface design at package level

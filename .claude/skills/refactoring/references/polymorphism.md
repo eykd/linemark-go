@@ -6,93 +6,105 @@
 
 **Steps**:
 
-1. Create class hierarchy if needed
-2. Use factory for object creation
-3. Move conditional logic into polymorphic method
-4. Replace conditional with method call
+1. Define interface for the polymorphic behavior
+2. Create struct types implementing the interface
+3. Use factory function for object creation
+4. Replace conditional with interface method call
 
-```typescript
+```go
 // Before: Switch on type in multiple places
-function plumage(bird: Bird): string {
-  switch (bird.type) {
-    case 'EuropeanSwallow':
-      return 'average';
-    case 'AfricanSwallow':
-      return bird.numberOfCoconuts > 2 ? 'tired' : 'average';
-    case 'NorwegianBlueParrot':
-      return bird.voltage > 100 ? 'scorched' : 'beautiful';
-    default:
-      return 'unknown';
-  }
+func plumage(bird BirdData) string {
+	switch bird.Type {
+	case "EuropeanSwallow":
+		return "average"
+	case "AfricanSwallow":
+		if bird.NumberOfCoconuts > 2 {
+			return "tired"
+		}
+		return "average"
+	case "NorwegianBlueParrot":
+		if bird.Voltage > 100 {
+			return "scorched"
+		}
+		return "beautiful"
+	default:
+		return "unknown"
+	}
 }
 
-function airSpeed(bird: Bird): number {
-  switch (bird.type) {
-    case 'EuropeanSwallow':
-      return 35;
-    case 'AfricanSwallow':
-      return 40 - 2 * bird.numberOfCoconuts;
-    case 'NorwegianBlueParrot':
-      return bird.isNailed ? 0 : 10 + bird.voltage / 10;
-    default:
-      return 0;
-  }
+func airSpeed(bird BirdData) float64 {
+	switch bird.Type {
+	case "EuropeanSwallow":
+		return 35
+	case "AfricanSwallow":
+		return 40 - 2*float64(bird.NumberOfCoconuts)
+	case "NorwegianBlueParrot":
+		if bird.IsNailed {
+			return 0
+		}
+		return 10 + bird.Voltage/10
+	default:
+		return 0
+	}
 }
 
-// After: Polymorphic classes
-abstract class Bird {
-  abstract get plumage(): string;
-  abstract get airSpeed(): number;
+// After: Interface + concrete types
+type Bird interface {
+	Plumage() string
+	AirSpeed() float64
 }
 
-class EuropeanSwallow extends Bird {
-  get plumage(): string {
-    return 'average';
-  }
-  get airSpeed(): number {
-    return 35;
-  }
+type EuropeanSwallow struct{}
+
+func (e EuropeanSwallow) Plumage() string  { return "average" }
+func (e EuropeanSwallow) AirSpeed() float64 { return 35 }
+
+type AfricanSwallow struct {
+	numberOfCoconuts int
 }
 
-class AfricanSwallow extends Bird {
-  constructor(private numberOfCoconuts: number) {
-    super();
-  }
-  get plumage(): string {
-    return this.numberOfCoconuts > 2 ? 'tired' : 'average';
-  }
-  get airSpeed(): number {
-    return 40 - 2 * this.numberOfCoconuts;
-  }
+func (a AfricanSwallow) Plumage() string {
+	if a.numberOfCoconuts > 2 {
+		return "tired"
+	}
+	return "average"
 }
 
-class NorwegianBlueParrot extends Bird {
-  constructor(
-    private voltage: number,
-    private isNailed: boolean
-  ) {
-    super();
-  }
-  get plumage(): string {
-    return this.voltage > 100 ? 'scorched' : 'beautiful';
-  }
-  get airSpeed(): number {
-    return this.isNailed ? 0 : 10 + this.voltage / 10;
-  }
+func (a AfricanSwallow) AirSpeed() float64 {
+	return 40 - 2*float64(a.numberOfCoconuts)
+}
+
+type NorwegianBlueParrot struct {
+	voltage  float64
+	isNailed bool
+}
+
+func (n NorwegianBlueParrot) Plumage() string {
+	if n.voltage > 100 {
+		return "scorched"
+	}
+	return "beautiful"
+}
+
+func (n NorwegianBlueParrot) AirSpeed() float64 {
+	if n.isNailed {
+		return 0
+	}
+	return 10 + n.voltage/10
 }
 
 // Factory
-function createBird(data: BirdData): Bird {
-  switch (data.type) {
-    case 'EuropeanSwallow':
-      return new EuropeanSwallow();
-    case 'AfricanSwallow':
-      return new AfricanSwallow(data.numberOfCoconuts);
-    case 'NorwegianBlueParrot':
-      return new NorwegianBlueParrot(data.voltage, data.isNailed);
-    default:
-      throw new Error(`Unknown bird type: ${data.type}`);
-  }
+func NewBird(data BirdData) (Bird, error) {
+	switch data.Type {
+	case "EuropeanSwallow":
+		return EuropeanSwallow{}, nil
+	case "AfricanSwallow":
+		return AfricanSwallow{numberOfCoconuts: data.NumberOfCoconuts}, nil
+	case "NorwegianBlueParrot":
+		return NorwegianBlueParrot{voltage: data.Voltage, isNailed: data.IsNailed}, nil
+	default:
+		return nil, fmt.Errorf("unknown bird type: %s", data.Type)
+	}
 }
 ```
 
@@ -106,96 +118,102 @@ function createBird(data: BirdData): Bird {
 2. Extract then-branch into function
 3. Extract else-branch into function
 
-```typescript
+```go
 // Before
-if (date < SUMMER_START || date > SUMMER_END) {
-  charge = quantity * winterRate + winterServiceCharge;
+if date.Before(summerStart) || date.After(summerEnd) {
+	charge = float64(quantity)*winterRate + winterServiceCharge
 } else {
-  charge = quantity * summerRate;
+	charge = float64(quantity) * summerRate
 }
 
 // After
-if (isSummer(date)) {
-  charge = summerCharge(quantity);
+if isSummer(date) {
+	charge = summerCharge(quantity)
 } else {
-  charge = winterCharge(quantity);
+	charge = winterCharge(quantity)
 }
 
-function isSummer(date: Date): boolean {
-  return date >= SUMMER_START && date <= SUMMER_END;
+func isSummer(date time.Time) bool {
+	return !date.Before(summerStart) && !date.After(summerEnd)
 }
 
-function summerCharge(quantity: number): number {
-  return quantity * summerRate;
+func summerCharge(quantity int) float64 {
+	return float64(quantity) * summerRate
 }
 
-function winterCharge(quantity: number): number {
-  return quantity * winterRate + winterServiceCharge;
+func winterCharge(quantity int) float64 {
+	return float64(quantity)*winterRate + winterServiceCharge
 }
 ```
 
-## Replace Type Code with Subclasses
+## Replace Type Code with Interface Implementations
 
 **When**: Type code affects behavior; enables polymorphism.
 
 **Steps**:
 
 1. Self-encapsulate type code if not already
-2. Create subclass for each type code value
-3. Create factory to return appropriate subclass
-4. Replace type code checks with polymorphic methods
+2. Define interface for the varying behavior
+3. Create struct for each type code value implementing the interface
+4. Create factory function to return appropriate implementation
 
-```typescript
+```go
 // Before: Type code as field
-class Employee {
-  constructor(private type: 'engineer' | 'salesman' | 'manager') {}
-
-  get bonus(): number {
-    switch (this.type) {
-      case 'engineer':
-        return this.salary * 0.1;
-      case 'salesman':
-        return this.sales * 0.15;
-      case 'manager':
-        return this.salary * 0.2 + this.teamBonus;
-    }
-  }
+type Employee struct {
+	employeeType string // "engineer", "salesman", "manager"
+	salary       float64
+	sales        float64
+	teamBonus    float64
 }
 
-// After: Type hierarchy
-abstract class Employee {
-  abstract get bonus(): number;
+func (e *Employee) Bonus() float64 {
+	switch e.employeeType {
+	case "engineer":
+		return e.salary * 0.1
+	case "salesman":
+		return e.sales * 0.15
+	case "manager":
+		return e.salary*0.2 + e.teamBonus
+	default:
+		return 0
+	}
 }
 
-class Engineer extends Employee {
-  get bonus(): number {
-    return this.salary * 0.1;
-  }
+// After: Interface + implementations
+type Employee interface {
+	Bonus() float64
 }
 
-class Salesman extends Employee {
-  get bonus(): number {
-    return this.sales * 0.15;
-  }
+type Engineer struct {
+	salary float64
 }
 
-class Manager extends Employee {
-  get bonus(): number {
-    return this.salary * 0.2 + this.teamBonus;
-  }
+func (e *Engineer) Bonus() float64 { return e.salary * 0.1 }
+
+type Salesman struct {
+	sales float64
 }
 
-function createEmployee(type: string, data: EmployeeData): Employee {
-  switch (type) {
-    case 'engineer':
-      return new Engineer(data);
-    case 'salesman':
-      return new Salesman(data);
-    case 'manager':
-      return new Manager(data);
-    default:
-      throw new Error(`Unknown type: ${type}`);
-  }
+func (s *Salesman) Bonus() float64 { return s.sales * 0.15 }
+
+type Manager struct {
+	salary    float64
+	teamBonus float64
+}
+
+func (m *Manager) Bonus() float64 { return m.salary*0.2 + m.teamBonus }
+
+func NewEmployee(employeeType string, data EmployeeData) (Employee, error) {
+	switch employeeType {
+	case "engineer":
+		return &Engineer{salary: data.Salary}, nil
+	case "salesman":
+		return &Salesman{sales: data.Sales}, nil
+	case "manager":
+		return &Manager{salary: data.Salary, teamBonus: data.TeamBonus}, nil
+	default:
+		return nil, fmt.Errorf("unknown employee type: %s", employeeType)
+	}
 }
 ```
 
@@ -206,28 +224,27 @@ function createEmployee(type: string, data: EmployeeData): Employee {
 **Steps**:
 
 1. Identify assumption that must be true
-2. Add assertion checking assumption
+2. Add check and return error or panic for invariants
 3. Use for invariants, not user input validation
 
-```typescript
+```go
 // Before: Implicit assumption about discount
-function applyDiscount(price: number, discountRate: number): number {
-  return price - price * discountRate;
+func applyDiscount(price, discountRate float64) float64 {
+	return price - price*discountRate
 }
 
-// After: Explicit assertion
-function applyDiscount(price: number, discountRate: number): number {
-  console.assert(
-    discountRate >= 0 && discountRate <= 1,
-    `Discount rate must be 0-1, got ${discountRate}`
-  );
-  return price - price * discountRate;
+// After: Explicit check
+func applyDiscount(price, discountRate float64) (float64, error) {
+	if discountRate < 0 || discountRate > 1 {
+		return 0, fmt.Errorf("discount rate must be 0-1, got %f", discountRate)
+	}
+	return price - price*discountRate, nil
 }
 ```
 
 ## When NOT to Use Polymorphism
 
 - **One-off conditional**: If switch appears only once, leave it
-- **Simple cases**: Don't create hierarchy for 2-3 simple cases
+- **Simple cases**: Don't create interface for 2-3 simple cases
 - **External data**: Type info comes from JSON/DB, keep factory switch
-- **Performance critical**: Virtual dispatch has overhead
+- **Performance critical**: Interface dispatch has overhead

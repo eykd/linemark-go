@@ -8,10 +8,8 @@ Guidance for evaluating test quality in pull request reviews.
 
 Evaluate test quality when the PR includes test files:
 
-- `*.spec.ts`, `*.test.ts` (TypeScript/JavaScript)
-- `test_*.py`, `*_test.py` (Python)
 - `*_test.go` (Go)
-- Files in `tests/`, `__tests__/`, `test/` directories
+- Files in `test/`, `testdata/` directories
 
 ---
 
@@ -34,7 +32,7 @@ Evaluate tests against these 12 properties:
 | ------------------------- | ----------------------------------- | --------------------------------------------- |
 | **Writable**              | Easy to add new tests?              | Copy-paste boilerplate, complex setup         |
 | **Readable**              | Clear what's being tested?          | Magic numbers, unclear assertions, long tests |
-| **Behavioral**            | Tests outcomes, not implementation? | Testing private methods, mocking internals    |
+| **Behavioral**            | Tests outcomes, not implementation? | Testing unexported methods, mocking internals |
 | **Structure-insensitive** | Survive refactoring?                | Tightly coupled to implementation details     |
 
 ### Meta Properties
@@ -64,35 +62,43 @@ From "Growing Object-Oriented Software, Guided by Tests":
 
 **Mock Roles, Not Objects**
 
-```typescript
+```go
 // Good: Mock the role (interface)
-const mockNotifier = mock<NotificationService>();
-await service.processOrder(mockNotifier);
-verify(mockNotifier.notify(order)).called();
+type mockNotifier struct {
+	notifiedOrders []Order
+}
 
-// Bad: Mock the implementation
-const mockEmail = mock(EmailClient); // Too specific
+func (m *mockNotifier) NotifyShipped(order Order) error {
+	m.notifiedOrders = append(m.notifiedOrders, order)
+	return nil
+}
+
+// Test uses the interface
+service := NewOrderService(&mockNotifier{})
+service.ShipOrder(order)
 ```
 
 **Don't Mock Values**
 
-```typescript
+```go
 // Good: Use real value objects
-const money = new Money(100, 'USD');
-expect(cart.total()).toEqual(money);
+money, _ := NewMoney(10000, "USD")
+if !cart.Total().Equal(money) {
+	t.Errorf("want %v, got %v", money, cart.Total())
+}
 
-// Bad: Mock simple values
-const mockMoney = mock<Money>(); // Unnecessary
+// Bad: Don't create mock value objects -- they're pure data
 ```
 
 **Verify Interactions, Not State**
 
-```typescript
+```go
 // Good: Verify the right call was made
-verify(repository.save(entity)).called();
+if len(repo.savedTasks) != 1 {
+	t.Fatal("expected task to be saved")
+}
 
 // Less ideal: Check internal state
-expect(repository.entities).toContain(entity);
 ```
 
 ---
@@ -144,20 +150,19 @@ When tests are hard to write, it often indicates design problems:
 
 ## Coverage Verification
 
-**CRITICAL**: This project requires 100% test coverage threshold.
+**CRITICAL**: This project requires 100% test coverage of non-Impl functions.
 
 When reviewing test changes, ALWAYS verify coverage:
 
 ```bash
-npx jest --coverage --findRelatedTests [changed-files]
+just test-cover-check
 ```
 
-**Check all four metrics**:
+**Coverage policy**:
 
-- Branches: Must be 100%
-- Functions: Must be 100%
-- Lines: Must be 100%
-- Statements: Must be 100%
+- All non-Impl functions must be 100% covered
+- `*Impl` functions (wrapping exec.Command, os operations) are exempt
+- The coverage check script filters out Impl functions from calculation
 
 ### Finding Format for Insufficient Coverage
 
@@ -168,18 +173,11 @@ npx jest --coverage --findRelatedTests [changed-files]
 
 - **Severity**: High
 - **Category**: test
-- **File**: path/to/file.ts
-- **Description**: Coverage is at X% (branches: X%, functions: X%, lines: X%, statements: X%). Project requires 100% coverage threshold.
+- **File**: path/to/file.go
+- **Description**: Coverage is at X%. Project requires 100% coverage for non-Impl functions.
 - **Impact**: Pre-commit hooks will fail. Untested code paths may contain bugs.
-- **Fix**: Add tests for uncovered lines. Run `npx jest --coverage` to see gaps. Use istanbul ignore ONLY for truly untestable code (defensive type guards, platform-specific edge cases).
+- **Fix**: Add tests for uncovered lines. Run `just test-cover` to see gaps.
 ```
-
-**If 95-99% coverage**:
-
-- Flag as HIGH severity finding
-- List specific uncovered lines from coverage report
-- Suggest specific test cases for each gap
-- Only suggest istanbul ignore if truly justified
 
 ---
 
@@ -209,11 +207,8 @@ For the Test Quality section of the review:
 
 #### Coverage Report
 
-- **Branches**: X%
-- **Functions**: X%
-- **Lines**: X%
-- **Statements**: X%
 - **Status**: [Pass/FAIL - see findings]
+- **Non-Impl Coverage**: X%
 
 #### Mocking Assessment
 
@@ -243,7 +238,7 @@ For rapid evaluation, verify these essentials:
 - [ ] Tests are specific (clear failure messages)
 - [ ] Mocking is appropriate (roles, not values)
 - [ ] No critical anti-patterns present
-- [ ] Coverage is 100% for all metrics
+- [ ] Coverage is 100% for non-Impl functions
 - [ ] Test pain signals are addressed or acknowledged
 
 ---
@@ -252,22 +247,29 @@ For rapid evaluation, verify these essentials:
 
 ### Good Test Pattern
 
-```typescript
-describe('OrderService', () => {
-  it('notifies customer when order ships', async () => {
-    // Arrange
-    const notifier = mock<NotificationService>();
-    const order = createOrder({ status: 'packed' });
-    const service = new OrderService(notifier);
+```go
+func TestOrderService_ShipOrder(t *testing.T) {
+	t.Run("notifies customer when order ships", func(t *testing.T) {
+		// Arrange
+		notifier := &spyNotifier{}
+		order := newTestOrder(withStatus(StatusPacked))
+		service := NewOrderService(notifier)
 
-    // Act
-    await service.shipOrder(order);
+		// Act
+		err := service.ShipOrder(order)
 
-    // Assert
-    verify(notifier.notifyShipped(order)).called();
-    expect(order.status).toBe('shipped');
-  });
-});
+		// Assert
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(notifier.shipped) != 1 {
+			t.Fatal("expected notification to be sent")
+		}
+		if order.Status() != StatusShipped {
+			t.Errorf("want status %v, got %v", StatusShipped, order.Status())
+		}
+	})
+}
 ```
 
 **Why it's good**:
@@ -280,29 +282,27 @@ describe('OrderService', () => {
 
 ### Bad Test Pattern
 
-```typescript
-describe('OrderService', () => {
-  let db: Database;
-  let cache: Cache;
+```go
+var testDB *sql.DB // Shared state!
 
-  beforeAll(() => {
-    db = new RealDatabase(); // Shared state
-    cache = new RealCache();
-  });
+func TestMain(m *testing.M) {
+	testDB = connectRealDB() // Real I/O in test setup
+	os.Exit(m.Run())
+}
 
-  it('works', async () => {
-    // Vague name
-    const service = new OrderService(db, cache);
-    const result = await service.process({}); // What's being tested?
-    expect(result).toBeTruthy(); // Weak assertion
-  });
-});
+func TestOrderService(t *testing.T) {
+	service := NewOrderService(testDB)
+	result, _ := service.Process(nil) // What's being tested?
+	if result == nil {                 // Weak assertion
+		t.Fatal("expected result")
+	}
+}
 ```
 
 **Why it's bad**:
 
-- Shared mutable state (beforeAll with real instances)
+- Shared mutable state (package-level testDB)
 - Unclear what behavior is tested
-- No isolation (real DB, real cache)
-- Weak assertion (truthy)
-- Vague test name ("works")
+- No isolation (real DB)
+- Weak assertion (just nil check)
+- Ignored error return

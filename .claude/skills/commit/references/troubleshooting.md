@@ -2,20 +2,23 @@
 
 ## Pre-commit Hook Failures
 
-### Linting Errors
+### Formatting Errors
 
 ```bash
-# Fix automatically
-npm run lint:fix
+# Check formatting
+just fmt
 
-# Or manually fix and retry commit
+# gofmt will reformat files in-place, then retry commit
 ```
 
-### Type Errors
+### Vet/Lint Errors
 
 ```bash
-# Check types
-npm run type-check
+# Run go vet
+just vet
+
+# Run staticcheck
+just lint
 
 # Fix errors and retry commit
 ```
@@ -24,14 +27,17 @@ npm run type-check
 
 ```bash
 # Run tests
-npm test
+just test
+
+# Run tests with coverage to find gaps
+just test-cover
 
 # Fix failing tests and retry commit
 ```
 
 ## Commit Message Validation Failures
 
-### Common Commitlint Errors
+### Common Errors
 
 **Error: `body-max-line-length`**
 
@@ -60,7 +66,7 @@ will cause the commit to fail."
 - No period at end of subject line
 - Subject line max 100 characters
 
-## TypeScript Project Commit Scenarios
+## Go Project Commit Scenarios
 
 ### New Feature with Tests
 
@@ -69,7 +75,7 @@ feat: add [feature name]
 
 - Implement [component/function]
 - Add comprehensive test coverage
-- Update types/interfaces as needed
+- Update interfaces as needed
 ```
 
 ### Bug Fix

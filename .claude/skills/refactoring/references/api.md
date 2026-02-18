@@ -6,32 +6,30 @@
 
 **Steps**:
 
-1. Create class/type for grouped parameters
+1. Create struct for grouped parameters
 2. Add parameter of new type
 3. Replace individual parameters
-4. Consider moving behavior into new class
+4. Consider moving behavior into new struct's methods
 
-```typescript
+```go
 // Before: Range parameters appear together everywhere
-function amountInvoicedIn(start: Date, end: Date): number {}
-function amountReceivedIn(start: Date, end: Date): number {}
-function amountOverdueIn(start: Date, end: Date): number {}
+func amountInvoicedIn(start, end time.Time) float64 { /* ... */ }
+func amountReceivedIn(start, end time.Time) float64 { /* ... */ }
+func amountOverdueIn(start, end time.Time) float64  { /* ... */ }
 
 // After: DateRange reveals domain concept
-class DateRange {
-  constructor(
-    readonly start: Date,
-    readonly end: Date
-  ) {}
-
-  contains(date: Date): boolean {
-    return date >= this.start && date <= this.end;
-  }
+type DateRange struct {
+	Start time.Time
+	End   time.Time
 }
 
-function amountInvoicedIn(range: DateRange): number {}
-function amountReceivedIn(range: DateRange): number {}
-function amountOverdueIn(range: DateRange): number {}
+func (r DateRange) Contains(date time.Time) bool {
+	return !date.Before(r.Start) && !date.After(r.End)
+}
+
+func amountInvoicedIn(r DateRange) float64 { /* ... */ }
+func amountReceivedIn(r DateRange) float64 { /* ... */ }
+func amountOverdueIn(r DateRange) float64  { /* ... */ }
 ```
 
 ## Remove Flag Argument
@@ -42,24 +40,57 @@ function amountOverdueIn(range: DateRange): number {}
 
 1. Create explicit function for each flag value
 2. Replace callers with explicit version
-3. Remove original or leave as wrapper
+3. Remove original or leave as unexported wrapper
 
-```typescript
+```go
 // Before: What does true mean?
-setDimension(name, 10, true);
+setDimension(name, 10, true)
 
 // After: Intent is clear
-setWidth(10);
-setHeight(10);
+SetWidth(10)
+SetHeight(10)
 
 // Implementation
-function setWidth(value: number): void {
-  setDimension('width', value);
+func SetWidth(value float64) {
+	setDimension("width", value)
 }
 
-function setHeight(value: number): void {
-  setDimension('height', value);
+func SetHeight(value float64) {
+	setDimension("height", value)
 }
+```
+
+### Alternative: Functional Options Pattern
+
+```go
+// Before: Multiple optional booleans
+func NewServer(addr string, tls bool, timeout int, maxConns int) *Server { /* ... */ }
+
+// After: Functional options
+type ServerOption func(*Server)
+
+func WithTLS() ServerOption {
+	return func(s *Server) { s.tls = true }
+}
+
+func WithTimeout(d time.Duration) ServerOption {
+	return func(s *Server) { s.timeout = d }
+}
+
+func WithMaxConns(n int) ServerOption {
+	return func(s *Server) { s.maxConns = n }
+}
+
+func NewServer(addr string, opts ...ServerOption) *Server {
+	s := &Server{addr: addr}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+// Caller: intent is clear
+srv := NewServer(":8080", WithTLS(), WithTimeout(30*time.Second))
 ```
 
 ## Preserve Whole Object
@@ -73,21 +104,23 @@ function setHeight(value: number): void {
 3. Update callers to pass whole object
 4. Consider if dependency is acceptable
 
-```typescript
+```go
 // Before: Extracting values just to pass them
-const low = room.daysTempRange.low;
-const high = room.daysTempRange.high;
-if (plan.withinRange(low, high)) {
+low := room.DaysTempRange.Low
+high := room.DaysTempRange.High
+if plan.WithinRange(low, high) {
 }
 
 // After: Pass the whole object
-if (plan.withinRange(room.daysTempRange)) {
+if plan.WithinRange(room.DaysTempRange) {
 }
 
-class HeatingPlan {
-  withinRange(range: TempRange): boolean {
-    return range.low >= this._temperatureRange.low && range.high <= this._temperatureRange.high;
-  }
+type HeatingPlan struct {
+	temperatureRange TempRange
+}
+
+func (h *HeatingPlan) WithinRange(r TempRange) bool {
+	return r.Low >= h.temperatureRange.Low && r.High <= h.temperatureRange.High
 }
 ```
 
@@ -101,16 +134,16 @@ class HeatingPlan {
 2. Replace parameter references with calculation
 3. Remove parameter from declaration and calls
 
-```typescript
+```go
 // Before: quantity can be derived
-finalPrice(basePrice: number, discountLevel: number, quantity: number): number {
-  return basePrice * (1 - this.discountFor(discountLevel, quantity));
+func (p *Pricing) FinalPrice(basePrice float64, discountLevel int, quantity int) float64 {
+	return basePrice * (1 - p.discountFor(discountLevel, quantity))
 }
 
 // After: Calculate quantity internally
-finalPrice(basePrice: number, discountLevel: number): number {
-  const quantity = this.order.quantity;
-  return basePrice * (1 - this.discountFor(discountLevel, quantity));
+func (p *Pricing) FinalPrice(basePrice float64, discountLevel int) float64 {
+	quantity := p.order.Quantity
+	return basePrice * (1 - p.discountFor(discountLevel, quantity))
 }
 ```
 
@@ -125,27 +158,37 @@ finalPrice(basePrice: number, discountLevel: number): number {
 3. Replace internal query with parameter
 4. Update callers to pass value
 
-```typescript
-// Before: Function depends on global thermostat
-class HeatingPlan {
-  get targetTemperature(): number {
-    if (thermostat.selectedTemperature > this._max) return this._max;
-    if (thermostat.selectedTemperature < this._min) return this._min;
-    return thermostat.selectedTemperature;
-  }
+```go
+// Before: Method depends on global thermostat
+type HeatingPlan struct {
+	max float64
+	min float64
+}
+
+func (h *HeatingPlan) TargetTemperature() float64 {
+	selected := thermostat.SelectedTemperature()
+	if selected > h.max {
+		return h.max
+	}
+	if selected < h.min {
+		return h.min
+	}
+	return selected
 }
 
 // After: Caller provides temperature
-class HeatingPlan {
-  targetTemperature(selectedTemp: number): number {
-    if (selectedTemp > this._max) return this._max;
-    if (selectedTemp < this._min) return this._min;
-    return selectedTemp;
-  }
+func (h *HeatingPlan) TargetTemperature(selectedTemp float64) float64 {
+	if selectedTemp > h.max {
+		return h.max
+	}
+	if selectedTemp < h.min {
+		return h.min
+	}
+	return selectedTemp
 }
 
 // Caller
-plan.targetTemperature(thermostat.selectedTemperature);
+plan.TargetTemperature(thermostat.SelectedTemperature())
 ```
 
 ## Separate Query from Modifier
@@ -159,26 +202,33 @@ plan.targetTemperature(thermostat.selectedTemperature);
 3. Remove return from modifier
 4. Replace callers: query for value, modifier for effect
 
-```typescript
+```go
 // Before: getTotalAndSendBill does two things
-function getTotalAndSendBill(): number {
-  const total = orders.reduce((sum, o) => sum + o.amount, 0);
-  sendBill(total);
-  return total;
+func getTotalAndSendBill(orders []Order) float64 {
+	total := 0.0
+	for _, o := range orders {
+		total += o.Amount
+	}
+	sendBill(total)
+	return total
 }
 
 // After: Separate concerns
-function getTotal(): number {
-  return orders.reduce((sum, o) => sum + o.amount, 0);
+func getTotal(orders []Order) float64 {
+	total := 0.0
+	for _, o := range orders {
+		total += o.Amount
+	}
+	return total
 }
 
-function sendBill(): void {
-  sendBillEmail(getTotal());
+func sendBill(orders []Order) {
+	sendBillEmail(getTotal(orders))
 }
 
 // Caller
-const total = getTotal();
-sendBill();
+total := getTotal(orders)
+sendBill(orders)
 ```
 
 ## Remove Setting Method
@@ -190,27 +240,25 @@ sendBill();
 1. Check field is only set in constructor
 2. Add to constructor parameters if needed
 3. Remove setter method
-4. Make field readonly
+4. Make field unexported
 
-```typescript
+```go
 // Before: id can be changed after creation
-class Person {
-  private _id: string = '';
-
-  get id(): string {
-    return this._id;
-  }
-  set id(value: string) {
-    this._id = value;
-  }
+type Person struct {
+	id string
 }
+
+func (p *Person) ID() string       { return p.id }
+func (p *Person) SetID(id string)  { p.id = id }
 
 // After: Immutable after construction
-class Person {
-  constructor(private readonly _id: string) {}
-
-  get id(): string {
-    return this._id;
-  }
+type Person struct {
+	id string
 }
+
+func NewPerson(id string) *Person {
+	return &Person{id: id}
+}
+
+func (p *Person) ID() string { return p.id }
 ```

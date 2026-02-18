@@ -5,7 +5,7 @@
 ## When to Use
 
 - Designing error handling strategies
-- Implementing catch blocks
+- Implementing error checks
 - Creating user-facing error messages
 - Building resilient external integrations
 
@@ -13,22 +13,16 @@
 
 ### Never Be Silent
 
-Every error must be reported. Never swallow exceptions without handling.
+Every error must be reported. Never discard errors without handling.
 
-```typescript
+```go
 // Bad: Silent failure
-try {
-  await sendNotification(user);
-} catch {
-  // Error ignored - user never knows
-}
+_ = sendNotification(user)
 
 // Good: Always report
-try {
-  await sendNotification(user);
-} catch (error) {
-  this.logger.error('Notification failed', { userId: user.id, error });
-  throw new NotificationFailedError(user.id, error);
+if err := sendNotification(user); err != nil {
+    logger.Error("notification failed", "userID", user.ID, "error", err)
+    return fmt.Errorf("sending notification for user %s: %w", user.ID, err)
 }
 ```
 
@@ -36,68 +30,88 @@ try {
 
 Error messages describe what users can do, not technical details.
 
-```typescript
+```go
 // Bad: Technical error exposed
-throw new Error('SQLITE_CONSTRAINT: UNIQUE constraint failed');
+return errors.New("SQLITE_CONSTRAINT: UNIQUE constraint failed")
 
-// Good: User-actionable message
-throw new UserFacingError(
-  'An account with this email already exists. Please sign in or use a different email.',
-  { code: 'EMAIL_EXISTS', technicalDetails: originalError }
-);
+// Good: User-actionable message with wrapped technical detail
+type UserFacingError struct {
+    Message string
+    Code    string
+    Cause   error
+}
+
+func (e *UserFacingError) Error() string { return e.Message }
+func (e *UserFacingError) Unwrap() error { return e.Cause }
+
+return &UserFacingError{
+    Message: "An account with this email already exists. Please sign in or use a different email.",
+    Code:    "EMAIL_EXISTS",
+    Cause:   originalErr,
+}
 ```
 
 ### Consider Failure an Expectation
 
 Design for failure with retries, fallbacks, and graceful degradation.
 
-```typescript
-class ResilientNotificationService {
-  async notify(user: User, message: Message): Promise<Result<void>> {
+```go
+type ResilientNotificationService struct {
+    maxAttempts int
+    queue       MessageQueue
+}
+
+func (s *ResilientNotificationService) Notify(user User, message Message) error {
     // Retry with backoff
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      const result = await this.tryNotify(user, message);
-      if (result.success) return result;
-      await this.backoff(attempt);
+    for attempt := 1; attempt <= s.maxAttempts; attempt++ {
+        if err := s.tryNotify(user, message); err == nil {
+            return nil
+        }
+        s.backoff(attempt)
     }
 
     // Fallback
-    await this.queueForLaterDelivery(user, message);
-    return Result.ok();
-  }
+    return s.queueForLaterDelivery(user, message)
 }
 ```
 
-## Result Type Pattern
+## (T, error) Return Pattern
 
-Use a Result type to make errors explicit in the type system.
+Use Go's multiple return values to make errors explicit at the call site.
 
-```typescript
-type Result<T, E = Error> = { success: true; value: T } | { success: false; error: E };
+```go
+type ValidationError struct {
+    Field   string
+    Message string
+}
 
-function parseEmail(input: string): Result<Email, ValidationError> {
-  if (!input.includes('@')) {
-    return { success: false, error: new ValidationError('Invalid email') };
-  }
-  return { success: true, value: new Email(input) };
+func (e *ValidationError) Error() string {
+    return fmt.Sprintf("%s: %s", e.Field, e.Message)
+}
+
+func ParseEmail(input string) (Email, error) {
+    if !strings.Contains(input, "@") {
+        return Email{}, &ValidationError{Field: "email", Message: "invalid email"}
+    }
+    return Email{value: input}, nil
 }
 
 // Usage forces error handling
-const result = parseEmail(input);
-if (!result.success) {
-  return Response.json({ error: result.error.message }, { status: 400 });
+email, err := ParseEmail(input)
+if err != nil {
+    return fmt.Errorf("parsing email: %w", err)
 }
-const email = result.value; // Type-safe access
+// email is safe to use
 ```
 
 ## Decision Matrix
 
-| Situation           | Apply                  | Example                        |
-| ------------------- | ---------------------- | ------------------------------ |
-| Catch block         | Never Be Silent        | Log and re-throw or handle     |
-| User-facing error   | Meaningful Messages    | Explain what user can do       |
-| External dependency | Failure as Expectation | Add retry/fallback             |
-| Function can fail   | Result Type            | Return Result instead of throw |
+| Situation           | Apply                  | Example                           |
+| ------------------- | ---------------------- | --------------------------------- |
+| Error return        | Never Be Silent        | Check and wrap or handle          |
+| User-facing error   | Meaningful Messages    | Explain what user can do          |
+| External dependency | Failure as Expectation | Add retry/fallback                |
+| Function can fail   | (T, error) Returns    | Return value and error explicitly |
 
 ## Related References
 

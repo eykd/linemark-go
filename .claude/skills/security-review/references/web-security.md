@@ -11,167 +11,148 @@
 
 ### Output Encoding (Primary Defense)
 
-```typescript
-class HtmlEncoder {
-  private static readonly ENTITIES: Record<string, string> = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#x27;',
-  };
+Go's `html/template` package auto-escapes by default:
 
-  static encode(str: string): string {
-    return str.replace(/[&<>"']/g, (char) => this.ENTITIES[char]);
-  }
-}
+```go
+import "html/template"
 
-// Safe tagged template literal
-function html(strings: TemplateStringsArray, ...values: unknown[]): string {
-  return strings.reduce((result, str, i) => {
-    const value = values[i - 1];
-    const encoded =
-      value == null
-        ? ''
-        : typeof value === 'string'
-          ? HtmlEncoder.encode(value)
-          : HtmlEncoder.encode(String(value));
-    return result + encoded + str;
-  });
-}
+// html/template auto-escapes interpolated values in HTML context
+tmpl := template.Must(template.New("page").Parse(`
+	<div class="user">{{.Name}}</div>
+	<a href="{{.ProfileURL}}">Profile</a>
+`))
 
-// Usage
-html`<div class="user">${user.name}</div>`; // Auto-encoded
+// Values are escaped based on context (HTML body, attribute, URL, etc.)
+tmpl.Execute(w, user) // auto-encoded
+```
+
+For manual encoding outside templates:
+
+```go
+import "html"
+
+// html.EscapeString escapes HTML special characters
+safe := html.EscapeString(userInput)
 ```
 
 ### Context-Specific Encoding
 
-| Context        | Encoding Required                      |
-| -------------- | -------------------------------------- |
-| HTML body      | `&<>"'` → entities                     |
-| HTML attribute | `&<>"'` → entities + quote attribute   |
-| JavaScript     | JSON.stringify or escape special chars |
-| URL            | encodeURIComponent                     |
-| CSS            | Avoid user input; whitelist if needed  |
-
-### HTMX Security Configuration
-
-```html
-<meta
-  name="htmx-config"
-  content='{
-  "selfRequestsOnly": true,
-  "allowScriptTags": false,
-  "allowEval": false,
-  "historyCacheSize": 0
-}'
-/>
-```
-
-| Setting                  | Purpose                              |
-| ------------------------ | ------------------------------------ |
-| `selfRequestsOnly: true` | Prevents SSRF via HTMX               |
-| `allowScriptTags: false` | Blocks script execution in responses |
-| `allowEval: false`       | Disables eval-based handlers         |
-| `historyCacheSize: 0`    | Prevents sensitive data caching      |
-
-### Safe Zones for User Content
-
-```html
-<div hx-disable>
-  ${renderUserContent(content)}
-  <!-- HTMX attrs ignored here -->
-</div>
-```
+| Context        | Encoding Required                           |
+| -------------- | ------------------------------------------- |
+| HTML body      | `html/template` auto-escapes                |
+| HTML attribute | `html/template` auto-escapes in attributes  |
+| JavaScript     | `json.Marshal` or `template.JSEscapeString` |
+| URL            | `url.QueryEscape` or `url.PathEscape`       |
+| CSS            | Avoid user input; allowlist if needed        |
 
 ### Flag These as Critical
 
-- String interpolation without encoding
-- `innerHTML` with user data
-- `document.write()` with user data
-- `eval()` with any external input
-- Missing HTMX security config
+- `fmt.Fprintf(w, ...)` with user data in HTML (use `html/template`)
+- `text/template` for HTML rendering (use `html/template`)
+- Direct string concatenation for HTML output
+- `template.HTML()` type cast on user input
 
 ## CSRF Protection
 
 ### Session-Tied CSRF Tokens
 
-```typescript
-// Generate token with session
-function createSession(userId: string): Session {
-  const csrfToken = generateSecureToken(); // 256 bits
-  return {
-    sessionId: generateSessionId(),
-    userId,
-    csrfToken, // Stored in session, not separate
-  };
+```go
+import "crypto/rand"
+
+// createSession generates a session with a CSRF token.
+func createSession(userID string) (*Session, error) {
+	sessionID, err := generateSecureToken(32) // 256 bits
+	if err != nil {
+		return nil, err
+	}
+	csrfToken, err := generateSecureToken(32)
+	if err != nil {
+		return nil, err
+	}
+	return &Session{
+		ID:        sessionID,
+		UserID:    userID,
+		CSRFToken: csrfToken,
+	}, nil
 }
 
-// Validate in middleware
-function validateCsrf(session: Session, token: string): boolean {
-  return session.validateCsrfToken(token); // Constant-time compare
+func generateSecureToken(bytes int) (string, error) {
+	b := make([]byte, bytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
-```
-
-### Include Token in Requests
-
-```html
-<!-- Via body attribute for all HTMX requests -->
-<body hx-headers='{"X-CSRF-Token": "${csrfToken}"}'>
-  <!-- Or via hidden field for forms -->
-  <input type="hidden" name="_csrf" value="${csrfToken}" />
-</body>
 ```
 
 ### CSRF Middleware
 
-```typescript
-async function csrfMiddleware(request: Request, session: Session | null) {
-  const method = request.method.toUpperCase();
+```go
+import "crypto/subtle"
 
-  // Skip safe methods
-  if (['GET', 'HEAD', 'OPTIONS'].includes(method)) return null;
+func csrfMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip safe methods
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+			next.ServeHTTP(w, r)
+			return
+		}
 
-  if (!session) return new Response('Unauthorized', { status: 401 });
+		session := getSession(r)
+		if session == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
 
-  // Extract from header or form
-  const token = request.headers.get('X-CSRF-Token') ?? (await extractFromForm(request));
+		// Extract from header or form
+		token := r.Header.Get("X-CSRF-Token")
+		if token == "" {
+			token = r.FormValue("_csrf")
+		}
 
-  if (!token || !session.validateCsrfToken(token)) {
-    return new Response('CSRF validation failed', { status: 403 });
-  }
+		if subtle.ConstantTimeCompare([]byte(token), []byte(session.CSRFToken)) != 1 {
+			http.Error(w, "CSRF validation failed", http.StatusForbidden)
+			return
+		}
 
-  // Also validate Origin header
-  if (!validateOrigin(request)) {
-    return new Response('Invalid origin', { status: 403 });
-  }
+		// Also validate Origin header
+		if !validateOrigin(r) {
+			http.Error(w, "Invalid origin", http.StatusForbidden)
+			return
+		}
 
-  return null; // Continue
+		next.ServeHTTP(w, r)
+	})
 }
 ```
 
 ### Origin Validation
 
-```typescript
-function validateOrigin(request: Request): boolean {
-  const origin = request.headers.get('Origin');
-  const host = request.headers.get('Host');
+```go
+import "net/url"
 
-  if (!origin) {
-    const referer = request.headers.get('Referer');
-    if (!referer) return true; // Allow but log
-    try {
-      return new URL(referer).host === host;
-    } catch {
-      return false;
-    }
-  }
+func validateOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	host := r.Host
 
-  try {
-    return new URL(origin).host === host;
-  } catch {
-    return false;
-  }
+	if origin == "" {
+		referer := r.Header.Get("Referer")
+		if referer == "" {
+			return true // Allow but log
+		}
+		u, err := url.Parse(referer)
+		if err != nil {
+			return false
+		}
+		return u.Host == host
+	}
+
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return u.Host == host
 }
 ```
 
@@ -186,24 +167,28 @@ function validateOrigin(request: Request): boolean {
 
 ### Recommended CSP
 
-```typescript
-function buildCsp(nonce?: string): string {
-  const directives = {
-    'default-src': ["'self'"],
-    'script-src': ["'self'", nonce ? `'nonce-${nonce}'` : ''],
-    'style-src': ["'self'", "'unsafe-inline'"], // Required for Tailwind
-    'img-src': ["'self'", 'data:', 'https:'],
-    'font-src': ["'self'"],
-    'connect-src': ["'self'"],
-    'form-action': ["'self'"],
-    'frame-ancestors': ["'none'"],
-    'base-uri': ["'self'"],
-    'object-src': ["'none'"],
-  };
+```go
+func buildCSP(nonce string) string {
+	directives := []string{
+		"default-src 'self'",
+		"script-src 'self'" + nonceDirective(nonce),
+		"style-src 'self' 'unsafe-inline'",
+		"img-src 'self' data: https:",
+		"font-src 'self'",
+		"connect-src 'self'",
+		"form-action 'self'",
+		"frame-ancestors 'none'",
+		"base-uri 'self'",
+		"object-src 'none'",
+	}
+	return strings.Join(directives, "; ")
+}
 
-  return Object.entries(directives)
-    .map(([key, values]) => `${key} ${values.filter(Boolean).join(' ')}`)
-    .join('; ');
+func nonceDirective(nonce string) string {
+	if nonce == "" {
+		return ""
+	}
+	return " 'nonce-" + nonce + "'"
 }
 ```
 
@@ -219,17 +204,6 @@ function buildCsp(nonce?: string): string {
 | `form-action`     | Form submission targets                  |
 | `base-uri`        | Allowed `<base>` URLs                    |
 
-### Alpine.js CSP Compatibility
-
-```html
-<!-- Option 1: Allow eval (less secure) -->
-<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-eval'" />
-
-<!-- Option 2: Use CSP build (recommended) -->
-<script src="/js/alpine.csp.min.js"></script>
-<!-- Then define all x-data in JS, not inline -->
-```
-
 ### Flag These as Medium
 
 - Missing CSP header
@@ -241,29 +215,28 @@ function buildCsp(nonce?: string): string {
 
 ### Required Headers
 
-```typescript
-function addSecurityHeaders(response: Response): Response {
-  const headers = new Headers(response.headers);
+```go
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
 
-  // HSTS - force HTTPS
-  headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+		// HSTS - force HTTPS
+		h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
 
-  // Prevent MIME sniffing
-  headers.set('X-Content-Type-Options', 'nosniff');
+		// Prevent MIME sniffing
+		h.Set("X-Content-Type-Options", "nosniff")
 
-  // Clickjacking protection
-  headers.set('X-Frame-Options', 'DENY');
+		// Clickjacking protection
+		h.Set("X-Frame-Options", "DENY")
 
-  // Referrer policy
-  headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+		// Referrer policy
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 
-  // Permissions policy
-  headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+		// Permissions policy
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 
-  return new Response(response.body, {
-    status: response.status,
-    headers,
-  });
+		next.ServeHTTP(w, r)
+	})
 }
 ```
 
@@ -280,10 +253,10 @@ function addSecurityHeaders(response: Response): Response {
 
 ### Cache Control for Authenticated Content
 
-```typescript
+```go
 // Prevent caching of sensitive responses
-headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-headers.set('Pragma', 'no-cache');
+h.Set("Cache-Control", "no-store, no-cache, must-revalidate")
+h.Set("Pragma", "no-cache")
 ```
 
 ### Flag These as Medium

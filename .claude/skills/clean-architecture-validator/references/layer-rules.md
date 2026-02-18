@@ -57,19 +57,19 @@
 - Domain Services (operations spanning entities)
 - Repository Interfaces (ports for data access)
 - Domain Events
-- Domain Exceptions
+- Domain Errors (sentinel errors or custom error types)
 
 **Allowed imports:**
 
 - Other domain types only
-- Language built-ins (Date, Map, Set, etc.)
+- Go standard library built-ins (errors, fmt, strings, time, etc.)
 
 **Forbidden:**
 
 - Framework packages
-- Database clients
-- HTTP types
-- File system APIs
+- Database clients (database/sql, pgx, etc.)
+- HTTP types (net/http)
+- File system APIs (os, io/fs for direct access)
 - External service clients
 
 ### Application Layer
@@ -82,7 +82,7 @@
 - DTOs (Data Transfer Objects)
 - Input/Output boundaries
 - Application Events
-- Validation schemas (for DTOs)
+- Validation logic (for DTOs)
 
 **Allowed imports:**
 
@@ -92,8 +92,8 @@
 **Forbidden:**
 
 - Infrastructure implementations
-- Presentation types (Request, Response)
-- Framework-specific decorators
+- Presentation types (http.Request, http.Response)
+- Framework-specific types
 
 ### Infrastructure Layer
 
@@ -113,7 +113,7 @@
 - Domain interfaces (to implement)
 - Application types (to use DTOs)
 - Framework packages
-- Database clients
+- Database clients (database/sql, pgx, etc.)
 - External SDKs
 
 ### Presentation Layer
@@ -122,11 +122,11 @@
 
 **Contains:**
 
-- HTTP Handlers / Controllers
+- HTTP Handlers
 - Route Definitions
 - Middleware
 - HTML Templates
-- CLI Commands
+- CLI Commands (Cobra commands)
 - Request/Response Mapping
 
 **Allowed imports:**
@@ -134,7 +134,7 @@
 - Application use cases
 - Domain types (for response mapping)
 - Infrastructure (for dependency injection setup)
-- Framework packages
+- Framework packages (net/http, Cobra, etc.)
 
 ---
 
@@ -143,29 +143,29 @@
 ### Standard Structure
 
 ```
-src/
+internal/
 ├── domain/
-│   ├── entities/
-│   ├── value-objects/
-│   ├── services/
-│   └── interfaces/        # Repository/port interfaces HERE
+│   ├── entity/
+│   ├── valueobject/
+│   ├── service/
+│   └── port/              # Repository/port interfaces HERE
 │
 ├── application/
-│   ├── use-cases/
+│   ├── usecase/
 │   ├── dto/
-│   └── services/
+│   └── service/
 │
 ├── infrastructure/
-│   ├── repositories/      # Implements domain/interfaces
+│   ├── repository/        # Implements domain/port interfaces
 │   ├── cache/
 │   ├── external/
 │   └── persistence/
 │
 └── presentation/
-    ├── handlers/
+    ├── handler/
     ├── middleware/
-    ├── templates/
-    └── routes/
+    ├── template/
+    └── route/
 ```
 
 ### Alternative Names
@@ -175,8 +175,8 @@ Some projects use different names:
 | Standard       | Alternatives                    |
 | -------------- | ------------------------------- |
 | domain         | core, model, business           |
-| application    | use-cases, services, app        |
-| infrastructure | adapters, data, external, infra |
+| application    | usecase, service, app           |
+| infrastructure | adapter, data, external, infra  |
 | presentation   | web, api, http, ui, cli         |
 
 ---
@@ -188,49 +188,88 @@ Some projects use different names:
 **Before:**
 
 ```
-infrastructure/repositories/UserRepository.ts  # interface + impl
+internal/infrastructure/repository/user_repository.go  # interface + impl
 ```
 
 **After:**
 
 ```
-domain/interfaces/UserRepository.ts            # interface only
-infrastructure/repositories/D1UserRepository.ts # implementation
+internal/domain/port/user_repository.go                # interface only
+internal/infrastructure/repository/sql_user_repository.go  # implementation
 ```
 
 ### Remove Infrastructure from Domain
 
 **Before:**
 
-```typescript
-// domain/entities/User.ts
-import { db } from '@infrastructure/database';
+```go
+// internal/domain/entity/user.go
+package entity
 
-export class User {
-  async save() {
-    await db.insert('users', this);
-  }
+import "database/sql" // ❌ infrastructure dependency in domain
+
+type User struct {
+	ID    string
+	Name  string
+	Email string
+	db    *sql.DB
+}
+
+func (u *User) Save() error {
+	_, err := u.db.Exec("INSERT INTO users (id, name, email) VALUES (?, ?, ?)", u.ID, u.Name, u.Email)
+	return err
 }
 ```
 
 **After:**
 
-```typescript
-// domain/entities/User.ts
-export class User {
-  // Pure entity, no persistence
+```go
+// internal/domain/entity/user.go
+package entity
+
+// Pure entity, no persistence
+type User struct {
+	ID    string
+	Name  string
+	Email string
+}
+```
+
+```go
+// internal/domain/port/user_repository.go
+package port
+
+import "myapp/internal/domain/entity"
+
+type UserRepository interface {
+	Save(user *entity.User) error
+}
+```
+
+```go
+// internal/infrastructure/repository/sql_user_repository.go
+package repository
+
+import (
+	"database/sql"
+	"myapp/internal/domain/entity"
+	"myapp/internal/domain/port"
+)
+
+// Verify interface compliance at compile time.
+var _ port.UserRepository = (*SQLUserRepository)(nil)
+
+type SQLUserRepository struct {
+	db *sql.DB
 }
 
-// domain/interfaces/UserRepository.ts
-export interface UserRepository {
-  save(user: User): Promise<void>;
+func NewSQLUserRepository(db *sql.DB) *SQLUserRepository {
+	return &SQLUserRepository{db: db}
 }
 
-// infrastructure/repositories/D1UserRepository.ts
-export class D1UserRepository implements UserRepository {
-  async save(user: User) {
-    await this.db.insert('users', user);
-  }
+func (r *SQLUserRepository) Save(user *entity.User) error {
+	_, err := r.db.Exec("INSERT INTO users (id, name, email) VALUES (?, ?, ?)", user.ID, user.Name, user.Email)
+	return err
 }
 ```
 
@@ -238,28 +277,76 @@ export class D1UserRepository implements UserRepository {
 
 **Before:**
 
-```typescript
-// application/use-cases/CreateUser.ts
-async execute(request: Request): Promise<Response>
+```go
+// internal/application/usecase/create_user.go
+package usecase
+
+import "net/http" // ❌ presentation concern in application
+
+func (uc *CreateUser) Execute(r *http.Request) (*http.Response, error) {
+	// ...
+}
 ```
 
 **After:**
 
-```typescript
-// application/dto/CreateUserRequest.ts
-export interface CreateUserRequest {
-  email: string;
-  name: string;
+```go
+// internal/application/dto/create_user.go
+package dto
+
+type CreateUserRequest struct {
+	Email string
+	Name  string
 }
 
-// application/use-cases/CreateUser.ts
-async execute(dto: CreateUserRequest): Promise<UserResponse>
+type UserResponse struct {
+	ID    string
+	Email string
+	Name  string
+}
+```
 
-// presentation/handlers/UserHandler.ts
-async handleCreate(request: Request): Promise<Response> {
-  const dto = await this.parseRequest(request);
-  const result = await this.createUser.execute(dto);
-  return this.toResponse(result);
+```go
+// internal/application/usecase/create_user.go
+package usecase
+
+import (
+	"myapp/internal/application/dto"
+)
+
+func (uc *CreateUser) Execute(req dto.CreateUserRequest) (*dto.UserResponse, error) {
+	// ...
+}
+```
+
+```go
+// internal/presentation/handler/user_handler.go
+package handler
+
+import (
+	"encoding/json"
+	"net/http"
+	"myapp/internal/application/dto"
+	"myapp/internal/application/usecase"
+)
+
+type UserHandler struct {
+	createUser *usecase.CreateUser
+}
+
+func (h *UserHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
+	var req dto.CreateUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	result, err := h.createUser.Execute(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
 ```
 
@@ -267,23 +354,43 @@ async handleCreate(request: Request): Promise<Response> {
 
 Wire dependencies in composition root (entry point):
 
-```typescript
-// src/index.ts (or composition-root.ts)
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    // Create infrastructure implementations
-    const userRepo = new D1UserRepository(env.DB);
-    const cache = new KVCacheService(env.CACHE);
+```go
+// cmd/server/main.go (or internal/app/wire.go)
+package main
 
-    // Create use cases with injected dependencies
-    const createUser = new CreateUser(userRepo);
-    const getUser = new GetUser(userRepo, cache);
+import (
+	"database/sql"
+	"log"
+	"net/http"
 
-    // Create handlers with use cases
-    const handlers = new UserHandlers(createUser, getUser);
+	"myapp/internal/application/usecase"
+	"myapp/internal/infrastructure/cache"
+	"myapp/internal/infrastructure/repository"
+	"myapp/internal/presentation/handler"
+)
 
-    // Route request
-    return router.handle(request, handlers);
-  },
-};
+func main() {
+	db, err := sql.Open("sqlite3", "app.db")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Create infrastructure implementations
+	userRepo := repository.NewSQLUserRepository(db)
+	cacheService := cache.NewRedisCache("localhost:6379")
+
+	// Create use cases with injected dependencies
+	createUser := usecase.NewCreateUser(userRepo)
+	getUser := usecase.NewGetUser(userRepo, cacheService)
+
+	// Create handlers with use cases
+	userHandler := handler.NewUserHandler(createUser, getUser)
+
+	// Route requests
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /users", userHandler.HandleCreate)
+	mux.HandleFunc("GET /users/{id}", userHandler.HandleGet)
+
+	log.Fatal(http.ListenAndServe(":8080", mux))
+}
 ```

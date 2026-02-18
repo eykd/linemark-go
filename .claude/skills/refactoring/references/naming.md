@@ -17,15 +17,15 @@
 3. Migrate callers gradually
 4. Remove old function
 
-```typescript
+```go
 // Before
-function circum(radius: number): number {
-  return 2 * Math.PI * radius;
+func circum(radius float64) float64 {
+	return 2 * math.Pi * radius
 }
 
 // After
-function circumference(radius: number): number {
-  return 2 * Math.PI * radius;
+func circumference(radius float64) float64 {
+	return 2 * math.Pi * radius
 }
 ```
 
@@ -40,12 +40,12 @@ function circumference(radius: number): number {
 3. Update all references
 4. Use IDE automated renaming when available
 
-```typescript
+```go
 // Before
-const a = height * width;
+a := height * width
 
 // After
-const area = height * width;
+area := height * width
 ```
 
 ## Rename Field
@@ -54,48 +54,48 @@ const area = height * width;
 
 **Steps**:
 
-1. If record has limited scope, rename directly
+1. If struct has limited scope, rename directly
 2. Otherwise, use Encapsulate Record first
-3. Rename private field
-4. Adjust accessors
+3. Rename unexported field
+4. Adjust accessor methods
 
-```typescript
+```go
 // Before
-interface Organization {
-  name: string;
-  ctry: string;
+type Organization struct {
+	Name string
+	Ctry string
 }
 
 // After
-interface Organization {
-  name: string;
-  country: string;
+type Organization struct {
+	Name    string
+	Country string
 }
 ```
 
-## Comments → Better Names
+## Comments to Better Names
 
 **When**: Comments describe what code does (not why).
 
 Comments are often a sign of unclear code. Instead of documenting unclear code, make it clear through better naming.
 
-```typescript
+```go
 // Before
 // Check if customer is eligible for discount
-if (customer.age > 65 || customer.membershipYears > 10) {
-  // Apply senior or loyalty discount
-  total = total * 0.9;
+if customer.Age > 65 || customer.MembershipYears > 10 {
+	// Apply senior or loyalty discount
+	total = total * 0.9
 }
 
 // After
-const isEligibleForDiscount = customer.age > 65 || customer.membershipYears > 10;
-if (isEligibleForDiscount) {
-  total = applyDiscount(total, LOYALTY_DISCOUNT_RATE);
+isEligibleForDiscount := customer.Age > 65 || customer.MembershipYears > 10
+if isEligibleForDiscount {
+	total = applyDiscount(total, loyaltyDiscountRate)
 }
 
 // OR even better: Extract Function
-if (isEligibleForDiscount(customer)) {
-  total = applyDiscount(total, LOYALTY_DISCOUNT_RATE);
+if isEligibleForDiscount(customer) {
+	total = applyDiscount(total, loyaltyDiscountRate)
 }
 ```
 
@@ -106,6 +106,7 @@ if (isEligibleForDiscount(customer)) {
 3. **Be specific** — `customerCount` not `data`
 4. **Avoid abbreviations** — `circumference` not `circum`
 5. **Keep comments for "why"** — Code should explain "what"
+6. **Follow Go conventions** — Exported `PascalCase`, unexported `camelCase`, acronyms all-caps (`HTTPClient`, `userID`)
 
 | Bad Name    | Good Name        | Reason                   |
 | ----------- | ---------------- | ------------------------ |
@@ -113,5 +114,5 @@ if (isEligibleForDiscount(customer)) {
 | `list`      | `customers`      | Reveals domain meaning   |
 | `flag`      | `isActive`       | Reveals purpose          |
 | `temp`      | `subtotal`       | Reveals business concept |
-| `doStuff()` | `calculateTax()` | Reveals operation        |
+| `doStuff()` | `CalculateTax()` | Reveals operation        |
 | `data`      | `userProfile`    | Reveals content type     |

@@ -6,60 +6,64 @@
 
 **Steps**:
 
-1. Create getter and setter functions
-2. Replace all direct references with function calls
-3. Consider making data private
+1. Create getter and setter methods
+2. Replace all direct references with method calls
+3. Make fields unexported
 4. Test
 
-```typescript
+```go
 // Before
-let defaultOwner = { firstName: 'Martin', lastName: 'Fowler' };
-spaceship.owner = defaultOwner;
+var DefaultOwner = Owner{FirstName: "Martin", LastName: "Fowler"}
+spaceship.Owner = DefaultOwner
 
 // After
-let _defaultOwner = { firstName: 'Martin', lastName: 'Fowler' };
+var defaultOwner = Owner{FirstName: "Martin", LastName: "Fowler"}
 
-function defaultOwner(): Owner {
-  return _defaultOwner;
+func GetDefaultOwner() Owner {
+	return defaultOwner
 }
 
-function setDefaultOwner(owner: Owner): void {
-  _defaultOwner = owner;
+func SetDefaultOwner(owner Owner) {
+	defaultOwner = owner
 }
 
-spaceship.owner = defaultOwner();
+spaceship.Owner = GetDefaultOwner()
 ```
 
 ## Encapsulate Record
 
-**When**: Data structures (objects, hashes) need controlled access.
+**When**: Data structures (structs, maps) need controlled access.
 
 **Steps**:
 
-1. Create class with private field for record
+1. Create struct with unexported fields
 2. Provide methods to get/set values
-3. Replace record usage with class
+3. Replace raw struct usage with encapsulated type
 4. Consider making immutable
 
-```typescript
+```go
 // Before
-const organization = { name: 'Acme', country: 'US' };
-organization.name = 'New Name';
+type Organization struct {
+	Name    string
+	Country string
+}
+
+org := Organization{Name: "Acme", Country: "US"}
+org.Name = "New Name"
 
 // After
-class Organization {
-  constructor(private data: { name: string; country: string }) {}
-
-  get name(): string {
-    return this.data.name;
-  }
-  set name(value: string) {
-    this.data.name = value;
-  }
-  get country(): string {
-    return this.data.country;
-  }
+type Organization struct {
+	name    string
+	country string
 }
+
+func NewOrganization(name, country string) *Organization {
+	return &Organization{name: name, country: country}
+}
+
+func (o *Organization) Name() string        { return o.name }
+func (o *Organization) SetName(name string)  { o.name = name }
+func (o *Organization) Country() string      { return o.country }
 ```
 
 ## Encapsulate Collection
@@ -69,67 +73,77 @@ class Organization {
 **Steps**:
 
 1. Add methods to add/remove items
-2. Return read-only view or copy from getter
-3. Never return mutable reference
+2. Return a copy from getter
+3. Never return mutable reference to internal slice
 
-```typescript
+```go
 // Before
-class Person {
-  courses: Course[] = [];
+type Person struct {
+	Courses []Course
 }
-person.courses.push(newCourse);
+person.Courses = append(person.Courses, newCourse)
 
 // After
-class Person {
-  private _courses: Course[] = [];
+type Person struct {
+	courses []Course
+}
 
-  get courses(): readonly Course[] {
-    return this._courses;
-  }
+func (p *Person) Courses() []Course {
+	result := make([]Course, len(p.courses))
+	copy(result, p.courses)
+	return result
+}
 
-  addCourse(course: Course): void {
-    this._courses.push(course);
-  }
+func (p *Person) AddCourse(course Course) {
+	p.courses = append(p.courses, course)
+}
 
-  removeCourse(course: Course): void {
-    const index = this._courses.indexOf(course);
-    if (index > -1) this._courses.splice(index, 1);
-  }
+func (p *Person) RemoveCourse(course Course) {
+	for i, c := range p.courses {
+		if c == course {
+			p.courses = append(p.courses[:i], p.courses[i+1:]...)
+			return
+		}
+	}
 }
 ```
 
 ## Replace Primitive with Object
 
-**When**: Primitive types (string, number) represent domain concepts.
+**When**: Primitive types (string, int) represent domain concepts.
 
 **Steps**:
 
-1. Create class for the value
-2. Replace primitive with object
-3. Move related behavior into class
+1. Create type for the value
+2. Replace primitive with new type
+3. Move related behavior into type's methods
 4. Consider making immutable
 
-```typescript
+```go
 // Before
-function deliveryDate(order: Order): Date {
-  if (order.priority === 'high') {
-    return addDays(order.placedOn, 1);
-  }
-  return addDays(order.placedOn, 3);
+func deliveryDate(order Order) time.Time {
+	if order.Priority == "high" {
+		return order.PlacedOn.AddDate(0, 0, 1)
+	}
+	return order.PlacedOn.AddDate(0, 0, 3)
 }
 
 // After
-class Priority {
-  constructor(private readonly value: string) {
-    if (!['low', 'normal', 'high', 'rush'].includes(value)) {
-      throw new Error(`Invalid priority: ${value}`);
-    }
-  }
+type Priority struct {
+	value string
+}
 
-  higherThan(other: Priority): boolean {
-    const levels = ['low', 'normal', 'high', 'rush'];
-    return levels.indexOf(this.value) > levels.indexOf(other.value);
-  }
+func NewPriority(value string) (Priority, error) {
+	valid := map[string]bool{"low": true, "normal": true, "high": true, "rush": true}
+	if !valid[value] {
+		return Priority{}, fmt.Errorf("invalid priority: %s", value)
+	}
+	return Priority{value: value}, nil
+}
+
+func (p Priority) HigherThan(other Priority) bool {
+	levels := map[string]int{"low": 0, "normal": 1, "high": 2, "rush": 3}
+	return levels[p.value] > levels[other.value]
 }
 ```
 
@@ -143,48 +157,51 @@ class Priority {
 2. Adjust client to call server
 3. Remove client's knowledge of delegate
 
-```typescript
+```go
 // Before
-const manager = person.department.manager;
+manager := person.Department().Manager()
 
-// After (in Person class)
-get manager(): Employee {
-  return this.department.manager;
+// After (add method to Person)
+func (p *Person) Manager() *Employee {
+	return p.department.Manager()
 }
 
 // Client code
-const manager = person.manager;
+manager := person.Manager()
 ```
 
 ## Introduce Special Case (Null Object)
 
-**When**: Same null/special case checks appear everywhere.
+**When**: Same nil/special case checks appear everywhere.
 
 **Steps**:
 
-1. Create special-case class implementing same interface
-2. Return special-case instance instead of null
-3. Move special-case behavior into special class
+1. Create special-case type satisfying same interface
+2. Return special-case instance instead of nil
+3. Move special-case behavior into special type
 
-```typescript
+```go
 // Before
-function customerName(site: Site): string {
-  const customer = site.customer;
-  if (customer === null) return 'occupant';
-  return customer.name;
+func customerName(site Site) string {
+	customer := site.Customer()
+	if customer == nil {
+		return "occupant"
+	}
+	return customer.Name()
 }
 
 // After
-class UnknownCustomer implements Customer {
-  get name(): string {
-    return 'occupant';
-  }
-  get billingPlan(): BillingPlan {
-    return BillingPlan.basic();
-  }
+type Customer interface {
+	Name() string
+	BillingPlan() BillingPlan
 }
 
-function customerName(site: Site): string {
-  return site.customer.name; // Works for real and unknown customers
+type UnknownCustomer struct{}
+
+func (u UnknownCustomer) Name() string            { return "occupant" }
+func (u UnknownCustomer) BillingPlan() BillingPlan { return BasicBillingPlan() }
+
+func customerName(site Site) string {
+	return site.Customer().Name() // Works for real and unknown customers
 }
 ```

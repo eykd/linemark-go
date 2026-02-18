@@ -20,36 +20,36 @@ Use a domain service when the operation:
 
 | Scenario                              | Solution                                    |
 | ------------------------------------- | ------------------------------------------- |
-| Calculate order total from line items | Entity method: `order.calculateTotal()`     |
+| Calculate order total from line items | Entity method: `order.CalculateTotal()`     |
 | Check if user can afford a purchase   | Domain service: `PaymentEligibilityService` |
 | Transfer funds between accounts       | Domain service: `FundsTransferService`      |
-| Validate an email format              | Value object: `Email.create()`              |
+| Validate an email format              | Value object: `NewEmail()`                  |
 
 ## Characteristics
 
 Domain services are:
 
 - **Stateless**: No instance state, operate purely on inputs
-- **Pure**: No side effects, same inputs → same outputs
+- **Pure**: No side effects, same inputs -> same outputs
 - **Framework-free**: No database, HTTP, or infrastructure dependencies
-- **Synchronous**: No async operations (those belong in application layer)
+- **Synchronous**: No I/O operations (those belong in application layer)
 
-```typescript
-// ✅ Good: Pure domain service
-export class PricingService {
-  calculateDiscount(items: LineItem[], customerTier: CustomerTier): Money {
-    // Pure calculation logic
-  }
+```go
+// Good: Pure domain service
+type PricingService struct{}
+
+func (s *PricingService) CalculateDiscount(items []LineItem, tier CustomerTier) (Money, error) {
+	// Pure calculation logic
 }
 
-// ❌ Bad: Has infrastructure concerns
-export class PricingService {
-  constructor(private db: Database) {} // Infrastructure dependency
+// Bad: Has infrastructure concerns
+type PricingService struct {
+	db *sql.DB // Infrastructure dependency!
+}
 
-  async calculateDiscount(customerId: string): Promise<Money> {
-    const customer = await this.db.findCustomer(customerId); // Async
-    // ...
-  }
+func (s *PricingService) CalculateDiscount(ctx context.Context, customerID string) (Money, error) {
+	customer, err := s.db.QueryRow(...) // I/O operation!
+	// ...
 }
 ```
 
@@ -57,345 +57,460 @@ export class PricingService {
 
 ### Calculation Service
 
-```typescript
-// src/domain/services/PricingService.ts
-import { Money } from '../value-objects/Money';
-import type { LineItem } from '../entities/LineItem';
-import type { Discount } from '../value-objects/Discount';
+```go
+// internal/domain/pricing.go
 
-export class PricingService {
-  calculateSubtotal(items: LineItem[]): Money {
-    if (items.length === 0) {
-      return Money.zero('USD');
-    }
+// PricingService performs price calculations across line items and discounts.
+type PricingService struct{}
 
-    return items.reduce(
-      (total, item) => total.add(item.price.multiply(item.quantity)),
-      Money.zero(items[0].price.currency)
-    );
-  }
+// CalculateSubtotal sums all line item totals.
+func (s *PricingService) CalculateSubtotal(items []LineItem) (Money, error) {
+	if len(items) == 0 {
+		return MoneyZero("USD"), nil
+	}
 
-  applyDiscounts(subtotal: Money, discounts: Discount[]): Money {
-    let total = subtotal;
+	total := MoneyZero(items[0].Price.Currency)
+	for _, item := range items {
+		itemTotal, err := item.Price.Multiply(item.Quantity)
+		if err != nil {
+			return Money{}, err
+		}
+		total, err = total.Add(itemTotal)
+		if err != nil {
+			return Money{}, err
+		}
+	}
+	return total, nil
+}
 
-    // Sort by type: percentage discounts first, then fixed
-    const sorted = [...discounts].sort((a, b) => (a.type === 'percentage' ? -1 : 1));
+// DiscountType distinguishes percentage from fixed-amount discounts.
+type DiscountType int
 
-    for (const discount of sorted) {
-      if (discount.type === 'percentage') {
-        const reduction = total.multiply(discount.value / 100);
-        total = total.subtract(reduction);
-      } else {
-        total = total.subtract(Money.of(discount.value, total.currency));
-      }
-    }
+const (
+	DiscountPercentage DiscountType = iota
+	DiscountFixed
+)
 
-    // Never go below zero
-    return total.amount < 0 ? Money.zero(total.currency) : total;
-  }
+// Discount represents a price reduction.
+type Discount struct {
+	Type  DiscountType
+	Value int // percentage (0-100) or fixed amount in cents
+}
 
-  calculateTax(amount: Money, taxRate: number): Money {
-    return amount.multiply(taxRate / 100);
-  }
+// ApplyDiscounts reduces the subtotal by the given discounts.
+// Percentage discounts are applied before fixed discounts.
+// The result is never negative.
+func (s *PricingService) ApplyDiscounts(subtotal Money, discounts []Discount) Money {
+	total := subtotal
+
+	// Apply percentage discounts first, then fixed
+	for _, d := range discounts {
+		if d.Type == DiscountPercentage {
+			reduction, _ := total.Multiply(d.Value)
+			reduction = Money{Amount: reduction.Amount / 100, Currency: total.Currency}
+			total, _ = total.Subtract(reduction)
+		}
+	}
+	for _, d := range discounts {
+		if d.Type == DiscountFixed {
+			fixed := Money{Amount: d.Value, Currency: total.Currency}
+			result, err := total.Subtract(fixed)
+			if err != nil {
+				return MoneyZero(total.Currency) // Never go below zero
+			}
+			total = result
+		}
+	}
+
+	if total.Amount < 0 {
+		return MoneyZero(total.Currency)
+	}
+	return total
+}
+
+// CalculateTax computes tax on an amount at the given rate (basis points).
+func (s *PricingService) CalculateTax(amount Money, rateBasisPoints int) Money {
+	tax := amount.Amount * rateBasisPoints / 10000
+	return Money{Amount: tax, Currency: amount.Currency}
 }
 ```
 
 ### Validation Service
 
-```typescript
-// src/domain/services/OrderValidationService.ts
-import type { Order } from '../entities/Order';
-import type { Customer } from '../entities/Customer';
-import { Money } from '../value-objects/Money';
+```go
+// internal/domain/order_validation.go
 
-export interface ValidationResult {
-  isValid: boolean;
-  errors: string[];
+// ValidationResult holds the outcome of a domain validation.
+type ValidationResult struct {
+	IsValid bool
+	Errors  []string
 }
 
-export class OrderValidationService {
-  validateOrder(order: Order, customer: Customer): ValidationResult {
-    const errors: string[] = [];
+// OrderValidationService validates orders against business rules.
+type OrderValidationService struct{}
 
-    // Business rule: Customer must be active
-    if (!customer.isActive) {
-      errors.push('Customer account is not active');
-    }
+// ValidateOrder checks an order against customer and business constraints.
+func (s *OrderValidationService) ValidateOrder(order *Order, customer *Customer) ValidationResult {
+	var errs []string
 
-    // Business rule: Order value within customer's credit limit
-    if (order.total.amount > customer.creditLimit.amount) {
-      errors.push('Order exceeds customer credit limit');
-    }
+	// Business rule: Customer must be active
+	if !customer.IsActive() {
+		errs = append(errs, "customer account is not active")
+	}
 
-    // Business rule: Minimum order value
-    const minimumOrder = Money.of(10, order.total.currency);
-    if (order.total.amount < minimumOrder.amount) {
-      errors.push('Order must be at least $10');
-    }
+	// Business rule: Order value within customer's credit limit
+	if order.Total().Amount > customer.CreditLimit().Amount {
+		errs = append(errs, "order exceeds customer credit limit")
+	}
 
-    // Business rule: No more than 100 items per order
-    if (order.itemCount > 100) {
-      errors.push('Order cannot exceed 100 items');
-    }
+	// Business rule: Minimum order value
+	minimumCents := 1000 // $10.00
+	if order.Total().Amount < minimumCents {
+		errs = append(errs, "order must be at least $10")
+	}
 
-    return {
-      isValid: errors.length === 0,
-      errors,
-    };
-  }
+	// Business rule: No more than 100 items per order
+	if order.ItemCount() > 100 {
+		errs = append(errs, "order cannot exceed 100 items")
+	}
+
+	return ValidationResult{
+		IsValid: len(errs) == 0,
+		Errors:  errs,
+	}
 }
 ```
 
 ### Policy Service
 
-```typescript
-// src/domain/services/ShippingPolicyService.ts
-import type { Order } from '../entities/Order';
-import type { Address } from '../value-objects/Address';
-import { Money } from '../value-objects/Money';
+```go
+// internal/domain/shipping.go
 
-export interface ShippingOption {
-  name: string;
-  cost: Money;
-  estimatedDays: number;
+// ShippingOption describes an available shipping method.
+type ShippingOption struct {
+	Name          string
+	Cost          Money
+	EstimatedDays int
 }
 
-export class ShippingPolicyService {
-  private readonly FREE_SHIPPING_THRESHOLD = Money.of(50, 'USD');
+// ShippingPolicyService determines available shipping options.
+type ShippingPolicyService struct{}
 
-  getAvailableOptions(order: Order, destination: Address): ShippingOption[] {
-    const options: ShippingOption[] = [];
-    const currency = order.total.currency;
+const freeShippingThresholdCents = 5000 // $50.00
 
-    // Standard shipping always available
-    options.push({
-      name: 'Standard',
-      cost: this.calculateStandardCost(order, destination),
-      estimatedDays: this.getStandardDeliveryDays(destination),
-    });
+// GetAvailableOptions returns shipping options based on order and destination.
+func (s *ShippingPolicyService) GetAvailableOptions(order *Order, destination Address) []ShippingOption {
+	currency := order.Total().Currency
+	var options []ShippingOption
 
-    // Express available for orders under 50lbs
-    if (order.totalWeight < 50) {
-      options.push({
-        name: 'Express',
-        cost: Money.of(15.99, currency),
-        estimatedDays: 2,
-      });
-    }
+	// Standard shipping always available
+	options = append(options, ShippingOption{
+		Name:          "Standard",
+		Cost:          s.calculateStandardCost(order, destination),
+		EstimatedDays: s.standardDeliveryDays(destination),
+	})
 
-    // Overnight for domestic only
-    if (destination.country === 'US') {
-      options.push({
-        name: 'Overnight',
-        cost: Money.of(29.99, currency),
-        estimatedDays: 1,
-      });
-    }
+	// Express available for orders under 50lbs
+	if order.TotalWeight() < 50 {
+		cost, _ := NewMoney(1599, currency)
+		options = append(options, ShippingOption{
+			Name:          "Express",
+			Cost:          cost,
+			EstimatedDays: 2,
+		})
+	}
 
-    return options;
-  }
+	// Overnight for domestic only
+	if destination.Country == "US" {
+		cost, _ := NewMoney(2999, currency)
+		options = append(options, ShippingOption{
+			Name:          "Overnight",
+			Cost:          cost,
+			EstimatedDays: 1,
+		})
+	}
 
-  private calculateStandardCost(order: Order, destination: Address): Money {
-    // Free shipping over threshold
-    if (order.total.amount >= this.FREE_SHIPPING_THRESHOLD.amount) {
-      return Money.zero(order.total.currency);
-    }
+	return options
+}
 
-    // Base cost + weight surcharge
-    const baseCost = destination.country === 'US' ? 5.99 : 14.99;
-    const weightSurcharge = Math.max(0, (order.totalWeight - 5) * 0.5);
+func (s *ShippingPolicyService) calculateStandardCost(order *Order, dest Address) Money {
+	currency := order.Total().Currency
+	if order.Total().Amount >= freeShippingThresholdCents {
+		return MoneyZero(currency)
+	}
 
-    return Money.of(baseCost + weightSurcharge, order.total.currency);
-  }
+	baseCents := 599
+	if dest.Country != "US" {
+		baseCents = 1499
+	}
 
-  private getStandardDeliveryDays(destination: Address): number {
-    return destination.country === 'US' ? 5 : 14;
-  }
+	weightSurcharge := 0
+	if order.TotalWeight() > 5 {
+		weightSurcharge = (order.TotalWeight() - 5) * 50 // 50 cents per lb over 5
+	}
+
+	cost, _ := NewMoney(baseCents+weightSurcharge, currency)
+	return cost
+}
+
+func (s *ShippingPolicyService) standardDeliveryDays(dest Address) int {
+	if dest.Country == "US" {
+		return 5
+	}
+	return 14
 }
 ```
 
 ### Allocation/Distribution Service
 
-```typescript
-// src/domain/services/InventoryAllocationService.ts
-import type { OrderItem } from '../entities/OrderItem';
-import type { WarehouseStock } from '../entities/WarehouseStock';
+```go
+// internal/domain/allocation.go
 
-export interface AllocationResult {
-  allocations: Map<string, { warehouseId: string; quantity: number }[]>;
-  unallocated: { productId: string; quantity: number }[];
+// Allocation records how much stock is allocated from a warehouse.
+type Allocation struct {
+	WarehouseID string
+	Quantity    int
 }
 
-export class InventoryAllocationService {
-  allocateStock(items: OrderItem[], warehouseStocks: WarehouseStock[]): AllocationResult {
-    const allocations = new Map<string, { warehouseId: string; quantity: number }[]>();
-    const unallocated: { productId: string; quantity: number }[] = [];
+// Unallocated records demand that could not be satisfied.
+type Unallocated struct {
+	ProductID string
+	Quantity  int
+}
 
-    for (const item of items) {
-      const productAllocations: { warehouseId: string; quantity: number }[] = [];
-      let remaining = item.quantity;
+// AllocationResult holds the outcome of an inventory allocation.
+type AllocationResult struct {
+	Allocations map[string][]Allocation // keyed by product ID
+	Unallocated []Unallocated
+}
 
-      // Sort warehouses by available stock (highest first)
-      const sortedStocks = warehouseStocks
-        .filter((ws) => ws.productId === item.productId)
-        .sort((a, b) => b.available - a.available);
+// InventoryAllocationService assigns warehouse stock to order items.
+type InventoryAllocationService struct{}
 
-      for (const stock of sortedStocks) {
-        if (remaining <= 0) break;
+// AllocateStock distributes order items across warehouses by available stock.
+func (s *InventoryAllocationService) AllocateStock(items []OrderItem, stocks []WarehouseStock) AllocationResult {
+	result := AllocationResult{
+		Allocations: make(map[string][]Allocation),
+	}
 
-        const allocate = Math.min(remaining, stock.available);
-        if (allocate > 0) {
-          productAllocations.push({
-            warehouseId: stock.warehouseId,
-            quantity: allocate,
-          });
-          remaining -= allocate;
-        }
-      }
+	for _, item := range items {
+		remaining := item.Quantity
 
-      if (productAllocations.length > 0) {
-        allocations.set(item.productId, productAllocations);
-      }
+		// Gather stocks for this product, sorted by available (highest first)
+		matching := filterAndSortStocks(stocks, item.ProductID)
 
-      if (remaining > 0) {
-        unallocated.push({ productId: item.productId, quantity: remaining });
-      }
-    }
+		for _, stock := range matching {
+			if remaining <= 0 {
+				break
+			}
+			allocate := min(remaining, stock.Available)
+			if allocate > 0 {
+				result.Allocations[item.ProductID] = append(
+					result.Allocations[item.ProductID],
+					Allocation{WarehouseID: stock.WarehouseID, Quantity: allocate},
+				)
+				remaining -= allocate
+			}
+		}
 
-    return { allocations, unallocated };
-  }
+		if remaining > 0 {
+			result.Unallocated = append(result.Unallocated,
+				Unallocated{ProductID: item.ProductID, Quantity: remaining})
+		}
+	}
+
+	return result
+}
+
+func filterAndSortStocks(stocks []WarehouseStock, productID string) []WarehouseStock {
+	var matching []WarehouseStock
+	for _, s := range stocks {
+		if s.ProductID == productID {
+			matching = append(matching, s)
+		}
+	}
+	sort.Slice(matching, func(i, j int) bool {
+		return matching[i].Available > matching[j].Available
+	})
+	return matching
 }
 ```
 
 ## Testing Domain Services
 
-Domain services are pure functions—test without mocks:
+Domain services are pure functions -- test without mocks:
 
-```typescript
-describe('PricingService', () => {
-  let service: PricingService;
+```go
+func TestPricingService_CalculateSubtotal(t *testing.T) {
+	svc := &PricingService{}
 
-  beforeEach(() => {
-    service = new PricingService();
-  });
+	tests := []struct {
+		name  string
+		items []LineItem
+		want  int // expected amount in cents
+	}{
+		{
+			name: "sums all line items",
+			items: []LineItem{
+				newLineItem(1000, "USD", 2), // $10 x 2
+				newLineItem(500, "USD", 3),  // $5 x 3
+			},
+			want: 3500, // $35
+		},
+		{
+			name:  "returns zero for empty items",
+			items: nil,
+			want:  0,
+		},
+	}
 
-  describe('calculateSubtotal', () => {
-    it('sums all line items', () => {
-      const items = [
-        createLineItem({ price: Money.of(10, 'USD'), quantity: 2 }),
-        createLineItem({ price: Money.of(5, 'USD'), quantity: 3 }),
-      ];
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := svc.CalculateSubtotal(tt.items)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result.Amount != tt.want {
+				t.Errorf("want %d, got %d", tt.want, result.Amount)
+			}
+		})
+	}
+}
 
-      const result = service.calculateSubtotal(items);
+func TestPricingService_ApplyDiscounts(t *testing.T) {
+	svc := &PricingService{}
 
-      expect(result.amount).toBe(35); // (10*2) + (5*3)
-    });
+	tests := []struct {
+		name      string
+		subtotal  Money
+		discounts []Discount
+		want      int
+	}{
+		{
+			name:      "applies percentage discount",
+			subtotal:  Money{Amount: 10000, Currency: "USD"},
+			discounts: []Discount{{Type: DiscountPercentage, Value: 10}},
+			want:      9000,
+		},
+		{
+			name:      "applies fixed discount",
+			subtotal:  Money{Amount: 10000, Currency: "USD"},
+			discounts: []Discount{{Type: DiscountFixed, Value: 1500}},
+			want:      8500,
+		},
+		{
+			name:     "applies percentage before fixed",
+			subtotal: Money{Amount: 10000, Currency: "USD"},
+			discounts: []Discount{
+				{Type: DiscountFixed, Value: 1000},
+				{Type: DiscountPercentage, Value: 10},
+			},
+			want: 8000, // 10000 - 10% = 9000, then 9000 - 1000 = 8000
+		},
+		{
+			name:      "never returns negative",
+			subtotal:  Money{Amount: 1000, Currency: "USD"},
+			discounts: []Discount{{Type: DiscountFixed, Value: 5000}},
+			want:      0,
+		},
+	}
 
-    it('returns zero for empty items', () => {
-      const result = service.calculateSubtotal([]);
-      expect(result.amount).toBe(0);
-    });
-  });
-
-  describe('applyDiscounts', () => {
-    it('applies percentage discount', () => {
-      const subtotal = Money.of(100, 'USD');
-      const discounts = [{ type: 'percentage' as const, value: 10 }];
-
-      const result = service.applyDiscounts(subtotal, discounts);
-
-      expect(result.amount).toBe(90);
-    });
-
-    it('applies fixed discount', () => {
-      const subtotal = Money.of(100, 'USD');
-      const discounts = [{ type: 'fixed' as const, value: 15 }];
-
-      const result = service.applyDiscounts(subtotal, discounts);
-
-      expect(result.amount).toBe(85);
-    });
-
-    it('applies percentage before fixed', () => {
-      const subtotal = Money.of(100, 'USD');
-      const discounts = [
-        { type: 'fixed' as const, value: 10 },
-        { type: 'percentage' as const, value: 10 },
-      ];
-
-      const result = service.applyDiscounts(subtotal, discounts);
-
-      // 100 - 10% = 90, then 90 - 10 = 80
-      expect(result.amount).toBe(80);
-    });
-
-    it('never returns negative', () => {
-      const subtotal = Money.of(10, 'USD');
-      const discounts = [{ type: 'fixed' as const, value: 50 }];
-
-      const result = service.applyDiscounts(subtotal, discounts);
-
-      expect(result.amount).toBe(0);
-    });
-  });
-});
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := svc.ApplyDiscounts(tt.subtotal, tt.discounts)
+			if result.Amount != tt.want {
+				t.Errorf("want %d, got %d", tt.want, result.Amount)
+			}
+		})
+	}
+}
 
 // Test helper
-function createLineItem(props: { price: Money; quantity: number }): LineItem {
-  return LineItem.create({
-    productId: 'prod-1',
-    price: props.price,
-    quantity: props.quantity,
-  });
+func newLineItem(priceCents int, currency string, quantity int) LineItem {
+	return LineItem{
+		ProductID: "prod-1",
+		Price:     Money{Amount: priceCents, Currency: currency},
+		Quantity:  quantity,
+	}
 }
 ```
 
 ### Integration with Use Cases
 
-```typescript
-// src/application/use-cases/PlaceOrder.ts
-import { PricingService } from '@domain/services/PricingService';
-import { ShippingPolicyService } from '@domain/services/ShippingPolicyService';
-import { OrderValidationService } from '@domain/services/OrderValidationService';
+```go
+// internal/app/place_order.go
 
-export class PlaceOrder {
-  constructor(
-    private orderRepository: OrderRepository,
-    private customerRepository: CustomerRepository,
-    private pricingService: PricingService,
-    private shippingService: ShippingPolicyService,
-    private validationService: OrderValidationService
-  ) {}
+// PlaceOrderService orchestrates the order placement use case.
+type PlaceOrderService struct {
+	orders     OrderRepository
+	customers  CustomerRepository
+	pricing    *PricingService
+	shipping   *ShippingPolicyService
+	validation *OrderValidationService
+}
 
-  async execute(request: PlaceOrderRequest): Promise<PlaceOrderResult> {
-    const customer = await this.customerRepository.findById(request.customerId);
-    if (!customer) throw new Error('Customer not found');
+// NewPlaceOrderService creates a PlaceOrderService with its dependencies.
+func NewPlaceOrderService(
+	orders OrderRepository,
+	customers CustomerRepository,
+	pricing *PricingService,
+	shipping *ShippingPolicyService,
+	validation *OrderValidationService,
+) *PlaceOrderService {
+	return &PlaceOrderService{
+		orders:     orders,
+		customers:  customers,
+		pricing:    pricing,
+		shipping:   shipping,
+		validation: validation,
+	}
+}
 
-    // Use domain services for business logic
-    const subtotal = this.pricingService.calculateSubtotal(request.items);
-    const afterDiscounts = this.pricingService.applyDiscounts(subtotal, request.discounts);
-    const shipping = this.shippingService.getAvailableOptions(
-      { total: afterDiscounts, items: request.items },
-      request.shippingAddress
-    )[0]; // Use first option
+// PlaceOrderResult holds the outcome of placing an order.
+type PlaceOrderResult struct {
+	Success bool
+	OrderID string
+	Errors  []string
+}
 
-    const order = Order.create({
-      customerId: customer.id,
-      items: request.items,
-      subtotal,
-      discounts: afterDiscounts,
-      shipping: shipping.cost,
-      total: afterDiscounts.add(shipping.cost),
-    });
+// Execute runs the place-order use case.
+func (s *PlaceOrderService) Execute(ctx context.Context, req PlaceOrderRequest) (PlaceOrderResult, error) {
+	customer, err := s.customers.FindByID(ctx, req.CustomerID)
+	if err != nil {
+		return PlaceOrderResult{}, fmt.Errorf("finding customer: %w", err)
+	}
+	if customer == nil {
+		return PlaceOrderResult{}, errors.New("customer not found")
+	}
 
-    // Validate using domain service
-    const validation = this.validationService.validateOrder(order, customer);
-    if (!validation.isValid) {
-      return { success: false, errors: validation.errors };
-    }
+	// Use domain services for business logic
+	subtotal, err := s.pricing.CalculateSubtotal(req.Items)
+	if err != nil {
+		return PlaceOrderResult{}, fmt.Errorf("calculating subtotal: %w", err)
+	}
+	afterDiscounts := s.pricing.ApplyDiscounts(subtotal, req.Discounts)
+	shippingOptions := s.shipping.GetAvailableOptions(
+		&Order{total: afterDiscounts, items: req.Items},
+		req.ShippingAddress,
+	)
+	shippingCost := shippingOptions[0].Cost
 
-    await this.orderRepository.save(order);
-    return { success: true, orderId: order.id };
-  }
+	order, err := NewOrder(customer.ID(), req.Items)
+	if err != nil {
+		return PlaceOrderResult{}, fmt.Errorf("creating order: %w", err)
+	}
+
+	// Validate using domain service
+	validation := s.validation.ValidateOrder(order, customer)
+	if !validation.IsValid {
+		return PlaceOrderResult{Success: false, Errors: validation.Errors}, nil
+	}
+
+	if err := s.orders.Save(ctx, order); err != nil {
+		return PlaceOrderResult{}, fmt.Errorf("saving order: %w", err)
+	}
+
+	_ = shippingCost // used for order total calculation
+	return PlaceOrderResult{Success: true, OrderID: order.ID()}, nil
 }
 ```

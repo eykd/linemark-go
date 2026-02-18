@@ -4,7 +4,7 @@
 
 ## When to Use
 
-- Naming functions, classes, or variables
+- Naming functions, types, or variables
 - Making code self-documenting
 - Choosing between implicit and explicit behavior
 - Deciding whether to build or reuse
@@ -15,32 +15,32 @@
 
 Each concept gets one clear, consistent name from the domain language.
 
-```typescript
+```go
 // Bad: Inconsistent naming
-function getUser() {}
-function fetchCustomer() {} // Same concept, different name
-function retrievePerson() {} // Same concept, different name
+func GetUser() {}
+func FetchCustomer() {} // Same concept, different name
+func RetrievePerson() {} // Same concept, different name
 
 // Good: Consistent ubiquitous language
-function findUser() {}
-function findUserById() {}
-function findUserByEmail() {}
+func FindUser() {}
+func FindUserByID() {}
+func FindUserByEmail() {}
 ```
 
 ### Communicate with Your Code
 
 Code should communicate intent without requiring comments.
 
-```typescript
+```go
 // Bad: Comment explains unclear code
 // Check if user can access the resource
-if (user.role === 'admin' || user.id === resource.ownerId) {
+if user.Role == "admin" || user.ID == resource.OwnerID {
 }
 
 // Good: Self-documenting code
-const isAdmin = user.hasRole(Role.ADMIN);
-const isOwner = resource.isOwnedBy(user);
-if (isAdmin || isOwner) {
+isAdmin := user.HasRole(RoleAdmin)
+isOwner := resource.IsOwnedBy(user)
+if isAdmin || isOwner {
 }
 ```
 
@@ -48,17 +48,25 @@ if (isAdmin || isOwner) {
 
 State intent clearly. Avoid magic behavior.
 
-```typescript
+```go
 // Bad: Implicit behavior
-function processOrder(order: Order, options?: object): void {
-  const shouldNotify = (options as any)?.notify !== false; // Implicit default
+type OrderOptions struct {
+    Notify *bool // nil means... true? false?
+}
+
+func ProcessOrder(order Order, opts OrderOptions) {
+    shouldNotify := opts.Notify == nil || *opts.Notify // Implicit default
 }
 
 // Good: Explicit parameters
-function processOrder(order: Order, options: { notify: boolean }): void {
-  if (options.notify) {
-    /* ... */
-  }
+type OrderOptions struct {
+    Notify bool
+}
+
+func ProcessOrder(order Order, opts OrderOptions) {
+    if opts.Notify {
+        // ...
+    }
 }
 ```
 
@@ -66,15 +74,14 @@ function processOrder(order: Order, options: { notify: boolean }): void {
 
 Use existing solutions before creating new ones.
 
-```typescript
+```go
 // Bad: Custom date formatting
-function formatDate(date: Date): string {
-  return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
+func formatDate(t time.Time) string {
+    return fmt.Sprintf("%02d/%02d/%04d", t.Month(), t.Day(), t.Year())
 }
 
-// Good: Use established library
-import { format } from 'date-fns';
-const formatted = format(date, 'MM/dd/yyyy');
+// Good: Use standard library
+formatted := t.Format("01/02/2006")
 ```
 
 ## Decision Matrix
@@ -95,11 +102,11 @@ When naming, ask:
 - [ ] Does it reveal intent? (not implementation)
 - [ ] Is it searchable? (avoid abbreviations)
 
-```typescript
+```go
 // Domain language examples
-class Order {} // Not: DataRecord, Entity
-class Money {} // Not: NumberWrapper, AmountValue
-function placeOrder() {} // Not: processData, handleRequest
+type Order struct{}     // Not: DataRecord, Entity
+type Money struct{}     // Not: NumberWrapper, AmountValue
+func PlaceOrder() {}   // Not: ProcessData, HandleRequest
 ```
 
 ## Related References

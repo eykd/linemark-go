@@ -2,25 +2,18 @@
 
 Convert between UTC and display timezones at system boundaries only.
 
-## The Intl.DateTimeFormat Approach
+## The time.LoadLocation Approach
 
-Use `Intl.DateTimeFormat` for all timezone conversions - it handles DST automatically:
+Use `time.LoadLocation` for all timezone conversions - it handles DST automatically:
 
-```typescript
-const TIMEZONE = 'America/Los_Angeles';
-
+```go
 // Format for display
-function formatForDisplay(utcIso: string): string {
-  const date = new Date(utcIso);
-
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: TIMEZONE,
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  }).format(date);
+func formatForDisplay(utc time.Time, tz string) (string, error) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return "", fmt.Errorf("loading location %s: %w", tz, err)
+	}
+	return utc.In(loc).Format("Jan 2, 3:04 PM"), nil
 }
 
 // "Jan 15, 8:00 AM"
@@ -28,43 +21,39 @@ function formatForDisplay(utcIso: string): string {
 
 ## Getting Components in a Timezone
 
-Extract year, month, day, hour from a UTC date in a specific timezone:
+Extract year, month, day, hour from a UTC time in a specific timezone:
 
-```typescript
-function getComponentsInTimezone(
-  date: Date,
-  timezone: string
-): { year: number; month: number; day: number; hour: number; minute: number; dayOfWeek: number } {
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    weekday: 'short',
-  });
+```go
+// TimeComponents holds date/time parts in a specific timezone.
+type TimeComponents struct {
+	Year      int
+	Month     time.Month
+	Day       int
+	Hour      int
+	Minute    int
+	DayOfWeek time.Weekday
+}
 
-  const parts = formatter.formatToParts(date);
-  const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? '';
-
-  const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-  return {
-    year: parseInt(get('year'), 10),
-    month: parseInt(get('month'), 10),
-    day: parseInt(get('day'), 10),
-    hour: parseInt(get('hour'), 10),
-    minute: parseInt(get('minute'), 10),
-    dayOfWeek: weekdays.indexOf(get('weekday')),
-  };
+func getComponentsInTimezone(t time.Time, tz string) (TimeComponents, error) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return TimeComponents{}, fmt.Errorf("loading location %s: %w", tz, err)
+	}
+	lt := t.In(loc)
+	return TimeComponents{
+		Year:      lt.Year(),
+		Month:     lt.Month(),
+		Day:       lt.Day(),
+		Hour:      lt.Hour(),
+		Minute:    lt.Minute(),
+		DayOfWeek: lt.Weekday(),
+	}, nil
 }
 
 // Usage
-const utc = new Date('2025-01-15T16:00:00.000Z');
-const pt = getComponentsInTimezone(utc, 'America/Los_Angeles');
-// { year: 2025, month: 1, day: 15, hour: 8, minute: 0, dayOfWeek: 3 }
+utc := time.Date(2025, 1, 15, 16, 0, 0, 0, time.UTC)
+pt, _ := getComponentsInTimezone(utc, "America/Los_Angeles")
+// Year: 2025, Month: January, Day: 15, Hour: 8, Minute: 0, DayOfWeek: Wednesday
 // (Wednesday at 8am PT)
 ```
 
@@ -72,122 +61,79 @@ const pt = getComponentsInTimezone(utc, 'America/Los_Angeles');
 
 Convert a time in a specific timezone to UTC:
 
-```typescript
-function createUtcFromTimezoneComponents(
-  year: number,
-  month: number,
-  day: number,
-  hour: number,
-  minute: number,
-  timezone: string
-): Date {
-  // Build a date string
-  const dateStr = [year, String(month).padStart(2, '0'), String(day).padStart(2, '0')].join('-');
-
-  const timeStr = [String(hour).padStart(2, '0'), String(minute).padStart(2, '0'), '00'].join(':');
-
-  // Parse as UTC first to get a reference
-  const tempUtc = new Date(`${dateStr}T${timeStr}Z`);
-
-  // See what hour this shows in the target timezone
-  const tzFormatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    hour: '2-digit',
-    hour12: false,
-  });
-  const tzHour = parseInt(tzFormatter.format(tempUtc), 10);
-
-  // Calculate the offset
-  let offsetHours = tzHour - hour;
-
-  // Handle day boundary wraparound
-  if (offsetHours > 12) offsetHours -= 24;
-  if (offsetHours < -12) offsetHours += 24;
-
-  // Adjust to get the correct UTC time
-  const result = new Date(tempUtc);
-  result.setUTCHours(result.getUTCHours() - offsetHours);
-  result.setUTCMinutes(
-    result.getUTCMinutes() -
-      (minute -
-        parseInt(
-          new Intl.DateTimeFormat('en-US', {
-            timeZone: timezone,
-            minute: '2-digit',
-          }).format(tempUtc),
-          10
-        ))
-  );
-
-  return result;
+```go
+func createUTCFromTimezone(year int, month time.Month, day, hour, minute int, tz string) (time.Time, error) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("loading location %s: %w", tz, err)
+	}
+	// time.Date in a specific location automatically handles DST
+	local := time.Date(year, month, day, hour, minute, 0, 0, loc)
+	return local.UTC(), nil
 }
 
 // "8am PT on Jan 15, 2025" as UTC
-const utc = createUtcFromTimezoneComponents(2025, 1, 15, 8, 0, 'America/Los_Angeles');
-// 2025-01-15T16:00:00.000Z (PST = UTC-8)
+utc, _ := createUTCFromTimezone(2025, time.January, 15, 8, 0, "America/Los_Angeles")
+// 2025-01-15T16:00:00Z (PST = UTC-8)
 ```
 
 ## Display Formatting Recipes
 
 ### Relative Time Display
 
-```typescript
-function formatRelative(utcIso: string, nowUtc: string, timezone: string): string {
-  const targetComponents = getComponentsInTimezone(new Date(utcIso), timezone);
-  const nowComponents = getComponentsInTimezone(new Date(nowUtc), timezone);
+```go
+func formatRelative(target, now time.Time, tz string) (string, error) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return "", err
+	}
 
-  // Same day?
-  if (
-    targetComponents.year === nowComponents.year &&
-    targetComponents.month === nowComponents.month &&
-    targetComponents.day === nowComponents.day
-  ) {
-    return 'Today';
-  }
+	targetLocal := target.In(loc)
+	nowLocal := now.In(loc)
 
-  // Tomorrow?
-  const tomorrow = new Date(nowUtc);
-  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-  const tomorrowComponents = getComponentsInTimezone(tomorrow, timezone);
+	// Same day?
+	if sameDay(targetLocal, nowLocal) {
+		return "Today", nil
+	}
 
-  if (
-    targetComponents.year === tomorrowComponents.year &&
-    targetComponents.month === tomorrowComponents.month &&
-    targetComponents.day === tomorrowComponents.day
-  ) {
-    return 'Tomorrow';
-  }
+	// Tomorrow?
+	tomorrowLocal := nowLocal.AddDate(0, 0, 1)
+	if sameDay(targetLocal, tomorrowLocal) {
+		return "Tomorrow", nil
+	}
 
-  // Otherwise show date
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  return `${months[targetComponents.month - 1]} ${targetComponents.day}`;
+	// Otherwise show date
+	return targetLocal.Format("Jan 2"), nil
+}
+
+func sameDay(a, b time.Time) bool {
+	return a.Year() == b.Year() && a.Month() == b.Month() && a.Day() == b.Day()
 }
 ```
 
 ### Time with AM/PM
 
-```typescript
-function formatTimeAmPm(utcIso: string, timezone: string): string {
-  const components = getComponentsInTimezone(new Date(utcIso), timezone);
+```go
+func formatTimeAmPm(utc time.Time, tz string) (string, error) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return "", err
+	}
+	lt := utc.In(loc)
 
-  const hour12 = components.hour % 12 || 12;
-  const ampm = components.hour >= 12 ? 'pm' : 'am';
-  const minute = components.minute > 0 ? `:${String(components.minute).padStart(2, '0')}` : '';
+	hour := lt.Hour() % 12
+	if hour == 0 {
+		hour = 12
+	}
+	ampm := "am"
+	if lt.Hour() >= 12 {
+		ampm = "pm"
+	}
 
-  return `${hour12}${minute}${ampm}`;
+	if lt.Minute() > 0 {
+		return fmt.Sprintf("%d:%02d%s", hour, lt.Minute(), ampm), nil
+	}
+	return fmt.Sprintf("%d%s", hour, ampm), nil
 }
 
 // "8am", "1:30pm", "12pm"
@@ -195,17 +141,13 @@ function formatTimeAmPm(utcIso: string, timezone: string): string {
 
 ### Full Date and Time
 
-```typescript
-function formatFullDateTime(utcIso: string, timezone: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  }).format(new Date(utcIso));
+```go
+func formatFullDateTime(utc time.Time, tz string) (string, error) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return "", err
+	}
+	return utc.In(loc).Format("Mon, Jan 2, 3:04 PM"), nil
 }
 
 // "Wed, Jan 15, 8:00 AM"
@@ -213,12 +155,13 @@ function formatFullDateTime(utcIso: string, timezone: string): string {
 
 ### Day of Week
 
-```typescript
-function getDayOfWeekName(utcIso: string, timezone: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    weekday: 'long',
-  }).format(new Date(utcIso));
+```go
+func getDayOfWeekName(utc time.Time, tz string) (string, error) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return "", err
+	}
+	return utc.In(loc).Weekday().String(), nil
 }
 
 // "Wednesday"
@@ -226,154 +169,153 @@ function getDayOfWeekName(utcIso: string, timezone: string): string {
 
 ## DST Handling
 
-`Intl.DateTimeFormat` handles DST automatically. Be aware of edge cases:
+`time.LoadLocation` handles DST automatically. Be aware of edge cases:
 
 ### DST Transitions
 
-```typescript
+```go
 // Winter (PST = UTC-8)
-const winter = '2025-01-15T16:00:00.000Z'; // 8am PT
-const winterPt = getComponentsInTimezone(new Date(winter), 'America/Los_Angeles');
-// hour: 8
+winter := time.Date(2025, 1, 15, 16, 0, 0, 0, time.UTC) // 8am PT
+loc, _ := time.LoadLocation("America/Los_Angeles")
+winterPT := winter.In(loc)
+// Hour: 8
 
 // Summer (PDT = UTC-7)
-const summer = '2025-07-15T15:00:00.000Z'; // 8am PT
-const summerPt = getComponentsInTimezone(new Date(summer), 'America/Los_Angeles');
-// hour: 8
+summer := time.Date(2025, 7, 15, 15, 0, 0, 0, time.UTC) // 8am PT
+summerPT := summer.In(loc)
+// Hour: 8
 
 // Note: Same local hour, different UTC hours!
 ```
 
 ### Creating Times Near DST Boundary
 
-When scheduling events, DST transitions can cause issues:
+When scheduling events, Go's `time.Date` with a `*Location` handles DST automatically:
 
-```typescript
+```go
 // Spring forward: 2am PT doesn't exist on March 9, 2025
+// Go's time.Date adjusts automatically
+loc, _ := time.LoadLocation("America/Los_Angeles")
+t := time.Date(2025, 3, 9, 2, 0, 0, 0, loc)
+// Adjusted to 3:00 AM PDT
+
 // Fall back: 1am PT happens twice on November 2, 2025
-
-// Safe approach: Use Intl to handle the conversion
-function scheduleAt(targetHour: number, targetDate: Date, timezone: string): string {
-  const components = getComponentsInTimezone(targetDate, timezone);
-
-  return createUtcFromTimezoneComponents(
-    components.year,
-    components.month,
-    components.day,
-    targetHour,
-    0,
-    timezone
-  ).toISOString();
-}
+// Go picks the first occurrence
 ```
 
 ## Presentation Layer Integration
 
-### Slack Adapter Example
+### CLI Output Example
 
-```typescript
-// src/adapters/slack-message-formatter.ts
-const USER_TIMEZONE = 'America/Los_Angeles';
+```go
+// internal/infra/cli_formatter.go
+const userTimezone = "America/Los_Angeles"
 
-export function formatActionCardMeta(action: NextAction): string {
-  if (!action.resurfaceAt) {
-    return '';
-  }
+func formatActionMeta(action *NextAction) string {
+	if action.ResurfaceAt == nil {
+		return ""
+	}
 
-  const relative = formatRelative(action.resurfaceAt, new Date().toISOString(), USER_TIMEZONE);
+	relative, _ := formatRelative(*action.ResurfaceAt, time.Now().UTC(), userTimezone)
+	timeStr, _ := formatTimeAmPm(*action.ResurfaceAt, userTimezone)
 
-  const time = formatTimeAmPm(action.resurfaceAt, USER_TIMEZONE);
-
-  return `_Resurfaces: ${relative} at ${time}_`;
+	return fmt.Sprintf("Resurfaces: %s at %s", relative, timeStr)
 }
 ```
 
-### HTTP Response Example
+### API Response Example
 
-```typescript
-// src/adapters/http-response-formatter.ts
-export function formatSessionResponse(
-  session: ReviewSession,
-  userTimezone: string
-): SessionResponse {
-  return {
-    id: session.id,
-    startedAt: session.startedAt, // Keep UTC for API consumers
-    startedAtDisplay: formatFullDateTime(session.startedAt, userTimezone),
-    expiresAt: session.expiresAt,
-    expiresAtDisplay: formatFullDateTime(session.expiresAt, userTimezone),
-  };
+```go
+// internal/infra/api_formatter.go
+type SessionResponse struct {
+	ID               string `json:"id"`
+	StartedAt        string `json:"startedAt"`        // UTC for API consumers
+	StartedAtDisplay string `json:"startedAtDisplay"`  // Human-readable
+	ExpiresAt        string `json:"expiresAt"`
+	ExpiresAtDisplay string `json:"expiresAtDisplay"`
+}
+
+func formatSessionResponse(s *Session, userTZ string) SessionResponse {
+	startDisplay, _ := formatFullDateTime(s.StartedAt, userTZ)
+	expiresDisplay, _ := formatFullDateTime(s.ExpiresAt, userTZ)
+	return SessionResponse{
+		ID:               s.ID,
+		StartedAt:        s.StartedAt.Format(time.RFC3339),
+		StartedAtDisplay: startDisplay,
+		ExpiresAt:        s.ExpiresAt.Format(time.RFC3339),
+		ExpiresAtDisplay: expiresDisplay,
+	}
 }
 ```
 
 ## Common Timezone Identifiers
 
-```typescript
+```go
 // US Timezones
-'America/Los_Angeles'; // Pacific (PT)
-'America/Denver'; // Mountain (MT)
-'America/Chicago'; // Central (CT)
-'America/New_York'; // Eastern (ET)
+"America/Los_Angeles"  // Pacific (PT)
+"America/Denver"       // Mountain (MT)
+"America/Chicago"      // Central (CT)
+"America/New_York"     // Eastern (ET)
 
 // Other common
-'Europe/London'; // UK (GMT/BST)
-'Europe/Paris'; // Central Europe (CET/CEST)
-'Asia/Tokyo'; // Japan (JST)
-'Australia/Sydney'; // Australia Eastern (AEST/AEDT)
+"Europe/London"        // UK (GMT/BST)
+"Europe/Paris"         // Central Europe (CET/CEST)
+"Asia/Tokyo"           // Japan (JST)
+"Australia/Sydney"     // Australia Eastern (AEST/AEDT)
 
 // UTC
-'UTC'; // Coordinated Universal Time
+"UTC"                  // Coordinated Universal Time
 ```
 
 ## Anti-Patterns
 
 ### Don't hardcode offsets
 
-```typescript
-// ❌ BAD - hardcoded offset ignores DST
-function ptToUtc(ptHour: number): number {
-  return ptHour + 8; // Only correct in winter!
+```go
+// BAD - hardcoded offset ignores DST
+func ptToUTC(ptHour int) int {
+	return ptHour + 8 // Only correct in winter!
 }
 
-// ✅ GOOD - use Intl for correct offset
-const utc = createUtcFromTimezoneComponents(2025, 1, 15, 8, 0, 'America/Los_Angeles');
+// GOOD - use time.LoadLocation for correct offset
+loc, _ := time.LoadLocation("America/Los_Angeles")
+utc := time.Date(2025, 1, 15, 8, 0, 0, 0, loc).UTC()
 ```
 
-### Don't use Date.prototype timezone methods
+### Don't use local time methods in domain
 
-```typescript
-// ❌ BAD - uses system timezone
-const hour = date.getHours();
-const day = date.getDay();
+```go
+// BAD - uses system timezone
+hour := t.Hour()    // Depends on server location!
+day := t.Weekday()
 
-// ✅ GOOD - explicit timezone
-const components = getComponentsInTimezone(date, 'America/Los_Angeles');
-const hour = components.hour;
-const day = components.dayOfWeek;
+// GOOD - explicit timezone
+loc, _ := time.LoadLocation("America/Los_Angeles")
+hour := t.In(loc).Hour()
+day := t.In(loc).Weekday()
 ```
 
 ### Don't convert in domain logic
 
-```typescript
-// ❌ BAD - timezone logic in domain
-class NextAction {
-  getDisplayTime(): string {
-    return formatForDisplay(this.resurfaceAt); // Wrong place!
-  }
+```go
+// BAD - timezone logic in domain
+func (a *NextAction) DisplayTime() string {
+	loc, _ := time.LoadLocation("America/Los_Angeles")
+	return a.resurfaceAt.In(loc).Format("3:04 PM") // Wrong place!
 }
 
-// ✅ GOOD - convert in adapter only
+// GOOD - convert in adapter only
 // Domain returns UTC
-const utcTime = action.resurfaceAt;
+utcTime := action.ResurfaceAt()
 // Adapter converts for display
-const displayTime = formatForDisplay(utcTime, userTimezone);
+display := formatForDisplay(utcTime, userTimezone)
 ```
 
 ## Summary
 
-- Use `Intl.DateTimeFormat` for all timezone conversions
-- Extract components with `formatToParts()` for calculations
-- Create UTC from timezone components using offset calculation
+- Use `time.LoadLocation` + `time.In(loc)` for all timezone conversions
+- Extract components with `In(loc)` and standard `time.Time` methods
+- Create UTC from timezone components using `time.Date(y, m, d, h, min, 0, 0, loc).UTC()`
 - Convert only at system boundaries (adapters/presenters)
-- DST is handled automatically by Intl
+- DST is handled automatically by Go's `time` package
 - Never hardcode timezone offsets

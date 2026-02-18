@@ -29,7 +29,7 @@ Findings are organized into three priority levels to help reviewers and develope
 **Example**:
 
 ```markdown
-**Incorrect calculation in discount logic** - src/cart.ts:42
+**Incorrect calculation in discount logic** - internal/cart/cart.go:42
 
 - **Problem**: Discount percentage applied twice (line 42 and line 45)
 - **Impact**: Customers charged incorrect amounts
@@ -46,7 +46,7 @@ Findings are organized into three priority levels to help reviewers and develope
 **Example**:
 
 ```markdown
-**No tests for payment processing** - src/payments/stripe.ts
+**No tests for payment processing** - internal/payments/stripe.go
 
 - **Problem**: New payment logic has no test coverage
 - **Impact**: Pre-commit hooks will fail; payment bugs could reach production
@@ -56,19 +56,18 @@ Findings are organized into three priority levels to help reviewers and develope
 #### Project Standard Violations
 
 - Violations of CLAUDE.md requirements
-- TypeScript strict mode violations
-- ESLint errors (not warnings)
-- Missing required JSDoc on public APIs
+- `go vet` or `staticcheck` errors
+- Missing GoDoc on exported APIs
 - Incorrect naming conventions
 
 **Example**:
 
 ```markdown
-**Function missing explicit return type** - src/utils/format.ts:12
+**Exported function missing GoDoc** - internal/utils/format.go:12
 
-- **Problem**: formatCurrency() has no return type annotation
-- **Impact**: Violates ESLint rule requiring explicit return types
-- **Fix**: Add `: string` return type annotation
+- **Problem**: FormatCurrency() has no GoDoc comment
+- **Impact**: Violates project standard requiring GoDoc on exported APIs
+- **Fix**: Add GoDoc comment describing the function
 ```
 
 ---
@@ -91,11 +90,12 @@ Findings are organized into three priority levels to help reviewers and develope
 **Example**:
 
 ```markdown
-**Excessive mocking in order tests** - src/orders/order.spec.ts:30
+**Excessive mocking in order tests** - internal/orders/order_test.go:30
 
 - **Problem**: Test mocks 5 dependencies when 2 would suffice
 - **Impact**: Tests are brittle and hard to maintain
-- **Fix**: Use real value objects for Order and LineItem, mock only NotificationService and PaymentGateway
+- **Fix**: Use real value objects for Order and LineItem,
+  mock only NotificationService and PaymentGateway
 ```
 
 #### Simplicity Concerns
@@ -108,7 +108,8 @@ Findings are organized into three priority levels to help reviewers and develope
 **Example**:
 
 ```markdown
-**Duplicated validation logic** - src/auth/register.ts and src/auth/login.ts
+**Duplicated validation logic** - internal/auth/register.go and
+internal/auth/login.go
 
 - **Problem**: Email validation regex duplicated in 2 places
 - **Impact**: Updates require changing multiple locations
@@ -125,7 +126,7 @@ Findings are organized into three priority levels to help reviewers and develope
 **Example**:
 
 ```markdown
-**Unclear variable name** - src/orders/processor.ts:67
+**Unclear variable name** - internal/orders/processor.go:67
 
 - **Problem**: Variable `x` used for order total amount
 - **Impact**: Reduces code readability
@@ -146,13 +147,13 @@ Findings are organized into three priority levels to help reviewers and develope
 
 - Alternative naming suggestions
 - Different code organization
-- Formatting preferences beyond Prettier
+- Formatting preferences beyond gofmt
 - Comment style variations
 
 **Example**:
 
 ```markdown
-**Consider renaming for clarity** - src/cart/discount.ts:15
+**Consider renaming for clarity** - internal/cart/discount.go:15
 
 - **Problem**: `calc()` is generic
 - **Impact**: Slightly reduces readability
@@ -169,7 +170,7 @@ Findings are organized into three priority levels to help reviewers and develope
 **Example**:
 
 ```markdown
-**Future enhancement: batch processing** - src/email/sender.ts:20
+**Future enhancement: batch processing** - internal/email/sender.go:20
 
 - **Problem**: Emails sent one at a time
 - **Impact**: Could be faster with batching
@@ -186,7 +187,7 @@ Findings are organized into three priority levels to help reviewers and develope
 **Example**:
 
 ```markdown
-**Alternative: use Strategy pattern** - src/pricing/calculator.ts
+**Alternative: use Strategy pattern** - internal/pricing/calculator.go
 
 - **Problem**: Switch statement for pricing types
 - **Impact**: Could be more extensible
@@ -203,11 +204,12 @@ Findings are organized into three priority levels to help reviewers and develope
 **Example**:
 
 ```markdown
-**Minor optimization opportunity** - src/search/filter.ts:45
+**Minor optimization opportunity** - internal/search/filter.go:45
 
-- **Problem**: Array filtered twice sequentially
+- **Problem**: Slice filtered twice sequentially
 - **Impact**: Minor performance cost
-- **Fix**: Could combine into single filter pass, but current approach is clearer
+- **Fix**: Could combine into single filter pass, but current approach
+  is clearer
 ```
 
 ---
@@ -218,24 +220,24 @@ Use these questions to determine priority level:
 
 ### Is it "Must Fix"?
 
-- Would this cause incorrect behavior? → **Must Fix**
-- Would this fail CI/CD checks? → **Must Fix**
-- Does it violate a documented project standard? → **Must Fix**
-- Is there missing test coverage? → **Must Fix**
+- Would this cause incorrect behavior? -> **Must Fix**
+- Would this fail CI/CD checks? -> **Must Fix**
+- Does it violate a documented project standard? -> **Must Fix**
+- Is there missing test coverage? -> **Must Fix**
 
 ### Is it "Should Fix"?
 
-- Would this make the code harder to maintain? → **Should Fix**
-- Does it violate a best practice (not a requirement)? → **Should Fix**
-- Is there a clear quality improvement? → **Should Fix**
-- Would this cause confusion for other developers? → **Should Fix**
+- Would this make the code harder to maintain? -> **Should Fix**
+- Does it violate a best practice (not a requirement)? -> **Should Fix**
+- Is there a clear quality improvement? -> **Should Fix**
+- Would this cause confusion for other developers? -> **Should Fix**
 
 ### Is it "Consider"?
 
-- Is this a suggestion, not a problem? → **Consider**
-- Are there trade-offs to the proposed change? → **Consider**
-- Is this about future enhancements? → **Consider**
-- Is this a matter of preference? → **Consider**
+- Is this a suggestion, not a problem? -> **Consider**
+- Are there trade-offs to the proposed change? -> **Consider**
+- Is this about future enhancements? -> **Consider**
+- Is this a matter of preference? -> **Consider**
 
 ---
 

@@ -67,8 +67,8 @@ Check for anti-patterns:
 
 **Coverage verification**:
 
-- Run `npx jest --coverage` for changed files
-- Project requires 100% coverage (branches, functions, lines, statements)
+- Run `just test-cover-check` for coverage
+- Project requires 100% coverage of non-Impl functions
 - Flag any coverage below 100% as HIGH severity
 
 ### 4. Simplicity
@@ -90,27 +90,19 @@ Evaluate maintainability and code clarity:
 
 Check compliance with CLAUDE.md project standards:
 
-- **TypeScript strictness**: All strict flags honored
-- **ESLint compliance**: No warnings, explicit return types, no `any`
-- **Naming conventions**: PascalCase interfaces/types, proper naming
-- **JSDoc**: All public functions/methods/classes documented
-- **Import order**: Correct and alphabetized
-- **Formatting**: Prettier compliance
+- **go vet compliance**: Zero warnings
+- **staticcheck compliance**: Zero warnings, no deprecated APIs
+- **Naming conventions**: Exported/unexported, idiomatic Go naming
+- **GoDoc**: All exported functions/methods/types documented
+- **Import order**: Standard library, then third-party, then local
+- **Formatting**: gofmt compliance
 
 **Project-specific rules**:
 
-- 100% test coverage threshold
+- 100% test coverage threshold (non-Impl functions)
 - Conventional commit format
 - Zero warnings policy
-
-**Cloudflare Workers Runtime** (if applicable):
-
-- No Node.js imports (`fs`, `path`, `process`, `crypto`, `http`, `https`, `net`, `dns`, `stream`, `buffer`)
-- No `process.env` (use `env` parameter)
-- No `__dirname`, `__filename`, `require()`
-- Uses `@cloudflare/workers-types`, not `@types/node`
-- Environment variables via `env: Env` parameter in fetch handler
-- Web Standard APIs only (`fetch`, `Request`, `Response`, `crypto.subtle`, Web Streams)
+- All errors handled explicitly (no `_` for errors)
 
 ## Known Issues Handling
 
@@ -221,7 +213,6 @@ Post as PR comment with this structure:
 [Specific, actionable prompt with file paths and line numbers that addresses all Must Fix and Should Fix items]
 
 ```
-
 ```
 
 ## Integration Notes
@@ -241,7 +232,7 @@ This skill is designed for GitHub Actions workflows with:
 - `gh` CLI available for PR operations
 - `known-issues.json` generated from beads tasks
 - CLAUDE.md project standards in repository
-- Jest test framework with coverage reporting
+- Go test framework with coverage reporting
 
 ### Local Usage
 

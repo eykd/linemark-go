@@ -12,66 +12,71 @@
 4. Set up delegation from old to new
 5. Test, then remove old or leave as delegation
 
-```typescript
-// Before: trackSummary uses totalDistance more than its own class
-class GPS {
-  trackSummary(points: Point[]): Summary {
-    const totalDistance = this.calculateDistance(points);
-    const pace = totalDistance / points.length;
-    return { distance: totalDistance, pace };
-  }
+```go
+// Before: trackSummary uses totalDistance more than its own struct
+type GPS struct{}
 
-  private calculateDistance(points: Point[]): number {
-    return points.reduce((sum, p, i) => (i === 0 ? 0 : sum + p.distanceTo(points[i - 1])), 0);
-  }
+func (g *GPS) TrackSummary(points []Point) Summary {
+	totalDist := g.calculateDistance(points)
+	pace := totalDist / float64(len(points))
+	return Summary{Distance: totalDist, Pace: pace}
+}
+
+func (g *GPS) calculateDistance(points []Point) float64 {
+	total := 0.0
+	for i := 1; i < len(points); i++ {
+		total += points[i].DistanceTo(points[i-1])
+	}
+	return total
 }
 
 // After: Move to where data lives
-class Track {
-  constructor(private points: Point[]) {}
+type Track struct {
+	points []Point
+}
 
-  get totalDistance(): number {
-    return this.points.reduce(
-      (sum, p, i) => (i === 0 ? 0 : sum + p.distanceTo(this.points[i - 1])),
-      0
-    );
-  }
+func (t *Track) TotalDistance() float64 {
+	total := 0.0
+	for i := 1; i < len(t.points); i++ {
+		total += t.points[i].DistanceTo(t.points[i-1])
+	}
+	return total
+}
 
-  get pace(): number {
-    return this.totalDistance / this.points.length;
-  }
+func (t *Track) Pace() float64 {
+	return t.TotalDistance() / float64(len(t.points))
 }
 ```
 
 ## Move Field
 
-**When**: Field is used more by another class, or data structures are too coupled.
+**When**: Field is used more by another struct, or data structures are too coupled.
 
 **Steps**:
 
-1. If public, use Encapsulate Variable first
+1. If exported, use Encapsulate Variable first
 2. Create field in target
 3. Adjust references to use target field
 4. Remove source field
 
-```typescript
+```go
 // Before: discount relates more to CustomerContract
-class Customer {
-  discountRate: number;
-  contract: CustomerContract;
+type Customer struct {
+	DiscountRate float64
+	Contract     *CustomerContract
 }
 
 // After
-class Customer {
-  contract: CustomerContract;
-
-  get discountRate(): number {
-    return this.contract.discountRate;
-  }
+type Customer struct {
+	Contract *CustomerContract
 }
 
-class CustomerContract {
-  discountRate: number;
+func (c *Customer) DiscountRate() float64 {
+	return c.Contract.DiscountRate
+}
+
+type CustomerContract struct {
+	DiscountRate float64
 }
 ```
 
@@ -86,19 +91,19 @@ class CustomerContract {
 3. Test
 4. Remove statements from callers
 
-```typescript
+```go
 // Before
-function renderPerson(person: Person): string {
-  const result: string[] = [];
-  result.push(`<p>${person.name}</p>`);
-  result.push(renderPhoto(person.photo));
-  result.push(`<p>title: ${person.photo.title}</p>`);
-  return result.join('\n');
+func renderPerson(person Person) string {
+	var result []string
+	result = append(result, fmt.Sprintf("<p>%s</p>", person.Name))
+	result = append(result, renderPhoto(person.Photo))
+	result = append(result, fmt.Sprintf("<p>title: %s</p>", person.Photo.Title))
+	return strings.Join(result, "\n")
 }
 
 // After: title rendering moved into renderPhoto
-function renderPhoto(photo: Photo): string {
-  return [`<img src="${photo.url}">`, `<p>title: ${photo.title}</p>`].join('\n');
+func renderPhoto(photo Photo) string {
+	return fmt.Sprintf("<img src=\"%s\">\n<p>title: %s</p>", photo.URL, photo.Title)
 }
 ```
 
@@ -112,19 +117,19 @@ function renderPhoto(photo: Photo): string {
 2. Copy varying code to each caller
 3. Remove from function
 
-```typescript
+```go
 // Before: emitPhotoData always outputs location, but not all callers want it
-function emitPhotoData(photo: Photo): string {
-  return `<p>title: ${photo.title}</p>\n<p>location: ${photo.location}</p>`;
+func emitPhotoData(photo Photo) string {
+	return fmt.Sprintf("<p>title: %s</p>\n<p>location: %s</p>", photo.Title, photo.Location)
 }
 
 // After
-function emitPhotoData(photo: Photo): string {
-  return `<p>title: ${photo.title}</p>`;
+func emitPhotoData(photo Photo) string {
+	return fmt.Sprintf("<p>title: %s</p>", photo.Title)
 }
 
 // Callers that need location add it themselves
-console.log(emitPhotoData(photo) + `\n<p>location: ${photo.location}</p>`);
+fmt.Println(emitPhotoData(photo) + fmt.Sprintf("\n<p>location: %s</p>", photo.Location))
 ```
 
 ## Slide Statements
@@ -138,36 +143,45 @@ console.log(emitPhotoData(photo) + `\n<p>location: ${photo.location}</p>`);
 3. Move code to target
 4. Test
 
-```typescript
+```go
 // Before
-const pricingPlan = retrievePricingPlan();
-const order = retrieveOrder();
-let charge: number;
-const chargePerUnit = pricingPlan.unit;
+pricingPlan := retrievePricingPlan()
+order := retrieveOrder()
+var charge float64
+chargePerUnit := pricingPlan.Unit
 
 // After: Group pricing-related code
-const pricingPlan = retrievePricingPlan();
-const chargePerUnit = pricingPlan.unit;
-const order = retrieveOrder();
-let charge: number;
+pricingPlan := retrievePricingPlan()
+chargePerUnit := pricingPlan.Unit
+order := retrieveOrder()
+var charge float64
 ```
 
 ## Replace Inline Code with Function Call
 
 **When**: Code duplicates logic that exists in a library or elsewhere.
 
-```typescript
+```go
 // Before
-let hasDiscount = false;
-for (const customer of customers) {
-  if (customer.isPremium) {
-    hasDiscount = true;
-    break;
-  }
+hasDiscount := false
+for _, customer := range customers {
+	if customer.IsPremium {
+		hasDiscount = true
+		break
+	}
 }
 
 // After
-const hasDiscount = customers.some((c) => c.isPremium);
+hasDiscount := hasPremiumCustomer(customers)
+
+func hasPremiumCustomer(customers []Customer) bool {
+	for _, c := range customers {
+		if c.IsPremium {
+			return true
+		}
+	}
+	return false
+}
 ```
 
 ## Split Loop
@@ -181,27 +195,31 @@ const hasDiscount = customers.some((c) => c.isPremium);
 3. Test
 4. Consider Extract Function on each loop
 
-```typescript
+```go
 // Before
-let youngest = Infinity;
-let totalSalary = 0;
-for (const p of people) {
-  if (p.age < youngest) youngest = p.age;
-  totalSalary += p.salary;
+youngest := math.MaxInt
+totalSalary := 0.0
+for _, p := range people {
+	if p.Age < youngest {
+		youngest = p.Age
+	}
+	totalSalary += p.Salary
 }
 
 // After
-let youngest = Infinity;
-for (const p of people) {
-  if (p.age < youngest) youngest = p.age;
+youngest := math.MaxInt
+for _, p := range people {
+	if p.Age < youngest {
+		youngest = p.Age
+	}
 }
 
-let totalSalary = 0;
-for (const p of people) {
-  totalSalary += p.salary;
+totalSalary := 0.0
+for _, p := range people {
+	totalSalary += p.Salary
 }
 
-// Even better: Use collection methods
-const youngest = Math.min(...people.map((p) => p.age));
-const totalSalary = people.reduce((sum, p) => sum + p.salary, 0);
+// Even better: Extract into named functions
+youngest := findYoungestAge(people)
+totalSalary := sumSalaries(people)
 ```

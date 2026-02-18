@@ -5,8 +5,8 @@
 ## When to Use
 
 - Creating new types for domain concepts
-- Wrapping primitive values (strings, numbers)
-- Grouping related parameters into objects
+- Wrapping primitive values (strings, ints)
+- Grouping related parameters into structs
 - Extracting magic numbers/strings to constants
 
 ## Core Principles
@@ -15,88 +15,97 @@
 
 Never use primitives for domain concepts. Wrap them in meaningful types.
 
-```typescript
+```go
 // Bad: Primitives lose domain meaning
-function createUser(email: string, age: number): void {}
+func CreateUser(email string, age int) {}
 
 // Good: Domain types with validation
-class Email {
-  constructor(private readonly value: string) {
-    if (!value.includes('@')) throw new InvalidEmailError(value);
-  }
-  toString(): string {
-    return this.value;
-  }
+type Email struct {
+    value string
 }
 
-class Age {
-  constructor(private readonly years: number) {
-    if (years < 0 || years > 150) throw new InvalidAgeError(years);
-  }
+func NewEmail(value string) (Email, error) {
+    if !strings.Contains(value, "@") {
+        return Email{}, &InvalidEmailError{Value: value}
+    }
+    return Email{value: value}, nil
 }
 
-function createUser(email: Email, age: Age): void {}
+func (e Email) String() string {
+    return e.value
+}
+
+type Age struct {
+    years int
+}
+
+func NewAge(years int) (Age, error) {
+    if years < 0 || years > 150 {
+        return Age{}, &InvalidAgeError{Years: years}
+    }
+    return Age{years: years}, nil
+}
+
+func CreateUser(email Email, age Age) {}
 ```
 
 ### Clump Data
 
-Group related values into cohesive objects to reduce cognitive load.
+Group related values into cohesive structs to reduce cognitive load.
 
-```typescript
+```go
 // Bad: Parameter explosion
-function placeOrder(
-  street: string,
-  city: string,
-  zip: string,
-  country: string,
-  cardNumber: string,
-  expiry: string,
-  cvv: string
-): void {}
+func PlaceOrder(
+    street string,
+    city string,
+    zip string,
+    country string,
+    cardNumber string,
+    expiry string,
+    cvv string,
+) {}
 
 // Good: Cohesive value objects
-class Address {
-  constructor(
-    readonly street: string,
-    readonly city: string,
-    readonly zip: string,
-    readonly country: string
-  ) {}
+type Address struct {
+    Street  string
+    City    string
+    Zip     string
+    Country string
 }
 
-class PaymentDetails {
-  constructor(
-    readonly cardNumber: string,
-    readonly expiry: string,
-    readonly cvv: string
-  ) {}
+type PaymentDetails struct {
+    CardNumber string
+    Expiry     string
+    CVV        string
 }
 
-function placeOrder(address: Address, payment: PaymentDetails): void {}
+func PlaceOrder(address Address, payment PaymentDetails) {}
 ```
 
 ### Never Let a Constant Slip
 
 Use named constants for all meaningful values.
 
-```typescript
+```go
 // Bad: Magic numbers
-if (retryCount > 3) {
-  /* give up */
+if retryCount > 3 {
+    // give up
 }
-if (order.total > 1000) {
-  /* apply discount */
+if order.Total > 1000 {
+    // apply discount
 }
 
 // Good: Named constants
-const MAX_RETRY_ATTEMPTS = 3;
-const BULK_ORDER_THRESHOLD = 1000;
+const (
+    MaxRetryAttempts   = 3
+    BulkOrderThreshold = 1000
+)
 
-if (retryCount > MAX_RETRY_ATTEMPTS) {
-  /* give up */
+if retryCount > MaxRetryAttempts {
+    // give up
 }
-if (order.total > BULK_ORDER_THRESHOLD) {
-  /* apply discount */
+if order.Total > BulkOrderThreshold {
+    // apply discount
 }
 ```
 
@@ -104,30 +113,31 @@ if (order.total > BULK_ORDER_THRESHOLD) {
 
 Start with fine-grained abstractions. It's easier to combine than to split.
 
-```typescript
+```go
 // Start specific, generalize later
-class EmailNotification {
-  /* email-specific */
+type EmailNotification struct {
+    // email-specific fields
 }
-class SmsNotification {
-  /* sms-specific */
+
+type SMSNotification struct {
+    // SMS-specific fields
 }
 
 // Later, if needed, create common abstraction
-interface Notification {
-  send(recipient: Recipient, message: Message): Promise<void>;
+type Notifier interface {
+    Send(recipient Recipient, message Message) error
 }
 ```
 
 ## Decision Matrix
 
-| Situation             | Apply                   | Example                          |
-| --------------------- | ----------------------- | -------------------------------- |
-| String with format    | Be Abstract All the Way | `Email`, `Url`, `PhoneNumber`    |
-| Number with units     | Be Abstract All the Way | `Money`, `Duration`, `Distance`  |
-| Related parameters    | Clump Data              | `Address`, `DateRange`           |
-| Literal value         | Named Constants         | `MAX_RETRIES`, `DEFAULT_TIMEOUT` |
-| Uncertain granularity | Splitters Can Be Lumped | Start specific                   |
+| Situation             | Apply                   | Example                         |
+| --------------------- | ----------------------- | ------------------------------- |
+| String with format    | Be Abstract All the Way | `Email`, `URL`, `PhoneNumber`   |
+| Number with units     | Be Abstract All the Way | `Money`, `Duration`, `Distance` |
+| Related parameters    | Clump Data              | `Address`, `DateRange`          |
+| Literal value         | Named Constants         | `MaxRetries`, `DefaultTimeout`  |
+| Uncertain granularity | Splitters Can Be Lumped | Start specific                  |
 
 ## Related References
 

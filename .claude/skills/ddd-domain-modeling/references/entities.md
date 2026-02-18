@@ -5,96 +5,106 @@ Entities have identity that persists through state changes.
 ## Table of Contents
 
 - [Structure](#structure)
-- [Factory Methods](#factory-methods)
+- [Constructor Functions](#constructor-functions)
 - [Invariant Enforcement](#invariant-enforcement)
 - [Aggregate Roots](#aggregate-roots)
 - [Testing Entities](#testing-entities)
 
 ## Structure
 
-```typescript
-// Props interface for internal state
-interface TaskProps {
-  id: string;
-  userId: string;
-  title: string;
-  status: TaskStatus; // Value object
-  createdAt: Date;
+```go
+// TaskStatus is a value object for task state.
+type TaskStatus int
+
+const (
+	TaskStatusPending TaskStatus = iota
+	TaskStatusInProgress
+	TaskStatusCompleted
+)
+
+// Task is a domain entity with identity and lifecycle.
+type Task struct {
+	id        string
+	userID    string
+	title     string
+	status    TaskStatus
+	createdAt time.Time
 }
 
-export class Task {
-  // Private constructor enforces factory usage
-  private constructor(private readonly props: TaskProps) {}
+// NewTask creates a new Task, validating business rules.
+func NewTask(userID, title string) (*Task, error) {
+	trimmed := strings.TrimSpace(title)
+	if len(trimmed) < 3 {
+		return nil, errors.New("title must be at least 3 characters")
+	}
+	return &Task{
+		id:        uuid.NewString(),
+		userID:    userID,
+		title:     trimmed,
+		status:    TaskStatusPending,
+		createdAt: time.Now(),
+	}, nil
+}
 
-  // Factory for new entities - validates business rules
-  static create(input: { userId: string; title: string }): Task {
-    if (!input.title || input.title.trim().length < 3) {
-      throw new Error('Title must be at least 3 characters');
-    }
-    return new Task({
-      id: crypto.randomUUID(),
-      userId: input.userId,
-      title: input.title.trim(),
-      status: TaskStatus.pending(),
-      createdAt: new Date(),
-    });
-  }
+// ReconstructTask rebuilds a Task from persistence without validation.
+func ReconstructTask(id, userID, title string, status TaskStatus, createdAt time.Time) *Task {
+	return &Task{id: id, userID: userID, title: title, status: status, createdAt: createdAt}
+}
 
-  // Factory for reconstitution from persistence - no validation
-  static reconstitute(props: TaskProps): Task {
-    return new Task(props);
-  }
+// Getters expose state (never setters).
+func (t *Task) ID() string          { return t.id }
+func (t *Task) Title() string       { return t.title }
+func (t *Task) IsCompleted() bool   { return t.status == TaskStatusCompleted }
 
-  // Getters expose state (never setters)
-  get id(): string {
-    return this.props.id;
-  }
-  get title(): string {
-    return this.props.title;
-  }
-  get isCompleted(): boolean {
-    return this.props.status.isCompleted;
-  }
+// Complete marks the task as completed, enforcing business rules.
+func (t *Task) Complete() error {
+	if t.status == TaskStatusCompleted {
+		return errors.New("task already completed")
+	}
+	t.status = TaskStatusCompleted
+	return nil
+}
 
-  // Behavior methods enforce business rules
-  complete(): void {
-    if (this.props.status.isCompleted) {
-      throw new Error('Task already completed');
-    }
-    this.props.status = TaskStatus.completed();
-  }
-
-  rename(newTitle: string): void {
-    if (!newTitle || newTitle.trim().length < 3) {
-      throw new Error('Title must be at least 3 characters');
-    }
-    this.props.title = newTitle.trim();
-  }
+// Rename updates the task title, enforcing validation.
+func (t *Task) Rename(newTitle string) error {
+	trimmed := strings.TrimSpace(newTitle)
+	if len(trimmed) < 3 {
+		return errors.New("title must be at least 3 characters")
+	}
+	t.title = trimmed
+	return nil
 }
 ```
 
-## Factory Methods
+## Constructor Functions
 
-Two factory methods serve different purposes:
+Two constructor functions serve different purposes:
 
-| Method           | Purpose                      | Validates | Generates ID |
-| ---------------- | ---------------------------- | --------- | ------------ |
-| `create()`       | New entities from user input | Yes       | Yes          |
-| `reconstitute()` | Rebuild from persistence     | No        | No           |
+| Function          | Purpose                      | Validates | Generates ID |
+| ----------------- | ---------------------------- | --------- | ------------ |
+| `NewTask()`       | New entities from user input | Yes       | Yes          |
+| `ReconstructTask()` | Rebuild from persistence   | No        | No           |
 
-```typescript
-// Application layer uses create()
-const task = Task.create({ userId: "user-1", title: "Buy milk" });
+```go
+// Application layer uses NewTask()
+task, err := NewTask("user-1", "Buy milk")
+if err != nil {
+	return fmt.Errorf("creating task: %w", err)
+}
 
-// Repository uses reconstitute()
-static reconstitute(row: TaskRow): Task {
-  return Task.reconstitute({
-    id: row.id,
-    userId: row.user_id,
-    title: row.title,
-    status: row.completed ? TaskStatus.completed() : TaskStatus.pending(),
-    createdAt: new Date(row.created_at)
-  });
+// Repository uses ReconstructTask()
+func (r *SQLTaskRepository) toDomain(row taskRow) *Task {
+	status := TaskStatusPending
+	if row.Completed {
+		status = TaskStatusCompleted
+	}
+	return ReconstructTask(
+		row.ID,
+		row.UserID,
+		row.Title,
+		status,
+		row.CreatedAt,
+	)
 }
 ```
 
@@ -102,30 +112,45 @@ static reconstitute(row: TaskRow): Task {
 
 Invariants are rules that must **always** be true:
 
-```typescript
-export class Order {
-  private constructor(private props: OrderProps) {
-    // Constructor invariant: orders must have at least one item
-    if (props.items.length === 0) {
-      throw new Error('Order must have at least one item');
-    }
-  }
+```go
+// Order is an aggregate root that enforces item invariants.
+type Order struct {
+	id    string
+	items []LineItem
+}
 
-  addItem(item: LineItem): void {
-    // Method invariant: no duplicates
-    if (this.props.items.some((i) => i.productId === item.productId)) {
-      throw new Error('Product already in order');
-    }
-    this.props.items.push(item);
-  }
+// NewOrder creates an Order, requiring at least one item.
+func NewOrder(id string, items []LineItem) (*Order, error) {
+	if len(items) == 0 {
+		return nil, errors.New("order must have at least one item")
+	}
+	return &Order{id: id, items: items}, nil
+}
 
-  removeItem(productId: string): void {
-    // Invariant: can't remove last item
-    if (this.props.items.length === 1) {
-      throw new Error('Cannot remove last item from order');
-    }
-    this.props.items = this.props.items.filter((i) => i.productId !== productId);
-  }
+// AddItem adds a line item, rejecting duplicates.
+func (o *Order) AddItem(item LineItem) error {
+	for _, existing := range o.items {
+		if existing.ProductID == item.ProductID {
+			return errors.New("product already in order")
+		}
+	}
+	o.items = append(o.items, item)
+	return nil
+}
+
+// RemoveItem removes a line item, preventing removal of the last one.
+func (o *Order) RemoveItem(productID string) error {
+	if len(o.items) == 1 {
+		return errors.New("cannot remove last item from order")
+	}
+	filtered := make([]LineItem, 0, len(o.items)-1)
+	for _, item := range o.items {
+		if item.ProductID != productID {
+			filtered = append(filtered, item)
+		}
+	}
+	o.items = filtered
+	return nil
 }
 ```
 
@@ -133,70 +158,117 @@ export class Order {
 
 Aggregate roots control access to child entities:
 
-```typescript
-export class Order {
-  private props: OrderProps;
+```go
+// Order controls all access to its child LineItems.
+type Order struct {
+	id       string
+	items    []LineItem
+	total    Money
+	currency string
+}
 
-  // Child entities accessed through root
-  get items(): ReadonlyArray<LineItem> {
-    return [...this.props.items]; // Defensive copy
-  }
+// Items returns a copy of the order's line items.
+func (o *Order) Items() []LineItem {
+	cp := make([]LineItem, len(o.items))
+	copy(cp, o.items)
+	return cp
+}
 
-  // Modifications go through root's methods
-  addItem(productId: string, quantity: number, price: Money): void {
-    const item = LineItem.create({ productId, quantity, price });
-    this.props.items.push(item);
-    this.recalculateTotal();
-  }
+// AddItem adds a line item through the root and recalculates the total.
+func (o *Order) AddItem(productID string, quantity int, price Money) error {
+	item, err := NewLineItem(productID, quantity, price)
+	if err != nil {
+		return err
+	}
+	o.items = append(o.items, *item)
+	o.recalculateTotal()
+	return nil
+}
 
-  private recalculateTotal(): void {
-    this.props.total = this.props.items.reduce(
-      (sum, item) => sum.add(item.subtotal),
-      Money.zero(this.props.currency)
-    );
-  }
+func (o *Order) recalculateTotal() {
+	total := MoneyZero(o.currency)
+	for _, item := range o.items {
+		subtotal := item.Subtotal()
+		sum, _ := total.Add(subtotal)
+		total = sum
+	}
+	o.total = total
 }
 ```
 
 ## Testing Entities
 
-Domain entities are pure—test without mocks:
+Domain entities are pure -- test without mocks:
 
-```typescript
-describe('Task', () => {
-  describe('create', () => {
-    it('creates task with valid title', () => {
-      const task = Task.create({ userId: 'user-1', title: 'Buy milk' });
+```go
+func TestNewTask(t *testing.T) {
+	tests := []struct {
+		name    string
+		userID  string
+		title   string
+		wantErr string
+	}{
+		{
+			name:   "creates task with valid title",
+			userID: "user-1",
+			title:  "Buy milk",
+		},
+		{
+			name:    "rejects short titles",
+			userID:  "user-1",
+			title:   "ab",
+			wantErr: "title must be at least 3 characters",
+		},
+		{
+			name:   "trims whitespace",
+			userID: "user-1",
+			title:  "  Buy milk  ",
+		},
+	}
 
-      expect(task.title).toBe('Buy milk');
-      expect(task.isCompleted).toBe(false);
-      expect(task.id).toBeDefined();
-    });
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task, err := NewTask(tt.userID, tt.title)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("want error %q, got %v", tt.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if task.Title() != strings.TrimSpace(tt.title) {
+				t.Errorf("want title %q, got %q", strings.TrimSpace(tt.title), task.Title())
+			}
+			if task.IsCompleted() {
+				t.Error("new task should not be completed")
+			}
+			if task.ID() == "" {
+				t.Error("task ID should be set")
+			}
+		})
+	}
+}
 
-    it('rejects short titles', () => {
-      expect(() => Task.create({ userId: 'user-1', title: 'ab' })).toThrow(
-        'Title must be at least 3 characters'
-      );
-    });
+func TestTask_Complete(t *testing.T) {
+	t.Run("marks pending task as completed", func(t *testing.T) {
+		task, _ := NewTask("user-1", "Test")
+		if err := task.Complete(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !task.IsCompleted() {
+			t.Error("task should be completed")
+		}
+	})
 
-    it('trims whitespace', () => {
-      const task = Task.create({ userId: 'user-1', title: '  Buy milk  ' });
-      expect(task.title).toBe('Buy milk');
-    });
-  });
-
-  describe('complete', () => {
-    it('marks pending task as completed', () => {
-      const task = Task.create({ userId: 'user-1', title: 'Test' });
-      task.complete();
-      expect(task.isCompleted).toBe(true);
-    });
-
-    it('throws when completing twice', () => {
-      const task = Task.create({ userId: 'user-1', title: 'Test' });
-      task.complete();
-      expect(() => task.complete()).toThrow('Task already completed');
-    });
-  });
-});
+	t.Run("returns error when completing twice", func(t *testing.T) {
+		task, _ := NewTask("user-1", "Test")
+		_ = task.Complete()
+		err := task.Complete()
+		if err == nil || err.Error() != "task already completed" {
+			t.Fatalf("want error %q, got %v", "task already completed", err)
+		}
+	})
+}
 ```

@@ -1,13 +1,13 @@
 # Architecture & System Design
 
-**Purpose**: Apply prefactoring principles when designing system structure, modules, and boundaries.
+**Purpose**: Apply prefactoring principles when designing system structure, packages, and boundaries.
 
 ## When to Use
 
-- Creating new modules or packages
+- Creating new packages
 - Defining system boundaries or layer organization
 - Making architectural decisions about component relationships
-- Choosing between inheritance and composition
+- Choosing between embedding and composition
 
 ## Core Principles
 
@@ -15,40 +15,52 @@
 
 Define interfaces before implementation. Document preconditions, postconditions, and side effects.
 
-```typescript
-/** Repository interface defines contract, not implementation */
-interface UserRepository {
-  /** @throws NotFoundError if user doesn't exist */
-  findById(id: UserId): Promise<User>;
-  /** @returns created user with generated ID */
-  save(user: User): Promise<User>;
+```go
+// UserRepository defines the contract for user persistence.
+type UserRepository interface {
+    // FindByID returns the user with the given ID.
+    // Returns NotFoundError if the user does not exist.
+    FindByID(id UserID) (User, error)
+
+    // Save persists the user and returns it with a generated ID.
+    Save(user User) (User, error)
 }
 ```
 
 ### Decomposition & Modularity
 
-Split systems into cohesive, loosely-coupled modules. Each module has one clear responsibility.
+Split systems into cohesive, loosely-coupled packages. Each package has one clear responsibility.
 
-```typescript
-// Good: Separate modules by domain concern
-// src/users/domain/        - User entities, value objects
-// src/users/application/   - Use cases
-// src/users/infrastructure/- Repository implementations
-// src/orders/domain/       - Order entities (separate bounded context)
+```go
+// Good: Separate packages by domain concern
+// users/domain/        - User entities, value objects
+// users/application/   - Use cases
+// users/infrastructure/- Repository implementations
+// orders/domain/       - Order entities (separate bounded context)
 ```
 
 ### Separation of Concerns
 
-Each module addresses one concern. Orthogonal concerns live in separate modules.
+Each package addresses one concern. Orthogonal concerns live in separate packages.
 
-```typescript
+```go
 // Separate concerns: validation, persistence, notification
-class CreateUserUseCase {
-  constructor(
-    private readonly validator: UserValidator, // Validation concern
-    private readonly repository: UserRepository, // Persistence concern
-    private readonly notifier: UserNotifier // Notification concern
-  ) {}
+type CreateUserUseCase struct {
+    validator  UserValidator     // Validation concern
+    repository UserRepository   // Persistence concern
+    notifier   UserNotifier     // Notification concern
+}
+
+func NewCreateUserUseCase(
+    v UserValidator,
+    r UserRepository,
+    n UserNotifier,
+) *CreateUserUseCase {
+    return &CreateUserUseCase{
+        validator:  v,
+        repository: r,
+        notifier:   n,
+    }
 }
 ```
 
@@ -56,17 +68,22 @@ class CreateUserUseCase {
 
 Dependencies flow in one direction: higher layers depend on lower layers.
 
-```typescript
+```go
 // Layer hierarchy (dependencies flow down)
 // Handlers    -> Use Cases    -> Domain      -> (nothing)
 // (adapters)  -> (application) -> (entities)
 
 // Use case depends on domain, not vice versa
-class ProcessOrderUseCase {
-  execute(request: ProcessOrderRequest): Promise<Order> {
-    const order = Order.create(request); // Domain has no use case dependency
-    return this.repository.save(order);
-  }
+type ProcessOrderUseCase struct {
+    repository OrderRepository
+}
+
+func (uc *ProcessOrderUseCase) Execute(req ProcessOrderRequest) (Order, error) {
+    order, err := NewOrder(req) // Domain has no use case dependency
+    if err != nil {
+        return Order{}, err
+    }
+    return uc.repository.Save(order)
 }
 ```
 
@@ -74,59 +91,67 @@ class ProcessOrderUseCase {
 
 Components that change together should be packaged together.
 
-```typescript
+```go
 // Group by feature/domain, not by type
 // Good:
-// src/orders/OrderEntity.ts
-// src/orders/OrderRepository.ts
-// src/orders/CreateOrderUseCase.ts
+// orders/order.go
+// orders/repository.go
+// orders/create_order.go
 
 // Bad:
-// src/entities/OrderEntity.ts
-// src/repositories/OrderRepository.ts
-// src/usecases/CreateOrderUseCase.ts
+// entities/order.go
+// repositories/order_repository.go
+// usecases/create_order.go
 ```
 
 ### Think in Interfaces, Not Inheritance
 
-Prefer composition and interfaces over inheritance hierarchies.
+Prefer composition and interfaces over embedding hierarchies.
 
-```typescript
-// Bad: Rigid inheritance
-class Animal {
-  move(): void {}
+```go
+// Bad: Rigid embedding hierarchy
+type Animal struct{}
+
+func (a Animal) Move() {}
+
+type Bird struct {
+    Animal
 }
-class Bird extends Animal {
-  fly(): void {}
+
+func (b Bird) Fly() {}
+
+type Penguin struct {
+    Bird // Inherits Fly, but penguins can't fly!
 }
-class Penguin extends Bird {} // Can't fly!
 
 // Good: Composition via interfaces
-interface Movable {
-  move(): void;
-}
-interface Flyable {
-  fly(): void;
+type Mover interface {
+    Move()
 }
 
-class Penguin implements Movable {
-  move(): void {
-    /* waddle */
-  }
+type Flyer interface {
+    Fly()
 }
+
+type Penguin struct{}
+
+func (p Penguin) Move() {
+    // waddle
+}
+// Penguin satisfies Mover but not Flyer - correct by design
 ```
 
 ## Decision Matrix
 
 | Situation             | Apply                    | Example                      |
 | --------------------- | ------------------------ | ---------------------------- |
-| New module            | Decomposition, Packaging | Group related files together |
+| New package           | Decomposition, Packaging | Group related files together |
 | API boundary          | Well-Defined Interfaces  | Document contracts           |
-| Cross-cutting concern | Separation of Concerns   | Extract to separate module   |
-| Class hierarchy       | Think in Interfaces      | Prefer composition           |
+| Cross-cutting concern | Separation of Concerns   | Extract to separate package  |
+| Type hierarchy        | Think in Interfaces      | Prefer composition           |
 | Dependency direction  | Hierarchy                | Higher depends on lower      |
 
 ## Related References
 
-- [abstraction.md](./abstraction.md): Type-level design decisions
-- [interfaces.md](./interfaces.md): Contract design and validation
+- [value-objects.md](./value-objects.md): Type-level design decisions
+- [contracts.md](./contracts.md): Contract design and validation

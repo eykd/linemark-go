@@ -1,346 +1,337 @@
-# Inheritance Refactorings
+# Composition Refactorings
 
-## Pull Up Method
+Go does not have inheritance. These refactorings use Go's embedding and composition to achieve similar goals.
 
-**When**: Methods in subclasses do the same thing.
+## Pull Up Method (via Embedding)
+
+**When**: Methods on multiple structs do the same thing; share via embedding.
 
 **Steps**:
 
 1. Check methods are identical (or make them so)
 2. Check method signatures match
-3. Create method in superclass
-4. Remove from subclasses
-5. Test
+3. Create shared struct with the common method
+4. Embed shared struct in each type
+5. Remove duplicate methods
+6. Test
 
-```typescript
-// Before: Duplicate in subclasses
-class Employee {
-  protected annualCost(): number {
-    /* abstract */
-  }
+```go
+// Before: Duplicate in multiple structs
+type Engineer struct {
+	monthlyCost float64
 }
 
-class Engineer extends Employee {
-  get annualCost(): number {
-    return this.monthlyCost * 12;
-  }
+func (e *Engineer) AnnualCost() float64 {
+	return e.monthlyCost * 12
 }
 
-class Salesman extends Employee {
-  get annualCost(): number {
-    return this.monthlyCost * 12;
-  }
+type Salesman struct {
+	monthlyCost float64
 }
 
-// After: Pull up to superclass
-abstract class Employee {
-  abstract get monthlyCost(): number;
+func (s *Salesman) AnnualCost() float64 {
+	return s.monthlyCost * 12
+}
 
-  get annualCost(): number {
-    return this.monthlyCost * 12;
-  }
+// After: Extract shared interface + embedding for shared logic
+type CostCalculator interface {
+	MonthlyCost() float64
+	AnnualCost() float64
+}
+
+type baseCost struct {
+	monthlyCost float64
+}
+
+func (b *baseCost) MonthlyCost() float64 { return b.monthlyCost }
+func (b *baseCost) AnnualCost() float64  { return b.monthlyCost * 12 }
+
+type Engineer struct {
+	baseCost
+}
+
+type Salesman struct {
+	baseCost
 }
 ```
 
-## Pull Up Field
+## Pull Up Field (via Embedding)
 
-**When**: Subclasses have same field.
+**When**: Multiple structs have the same field.
 
 **Steps**:
 
 1. Check fields are used similarly
-2. Create field in superclass
-3. Remove from subclasses
+2. Create shared struct with the field
+3. Embed in each struct
+4. Remove duplicate fields
 
-```typescript
+```go
 // Before
-class Engineer extends Employee {
-  protected name: string;
+type Engineer struct {
+	name string
 }
 
-class Salesman extends Employee {
-  protected name: string;
+type Salesman struct {
+	name string
 }
 
 // After
-abstract class Employee {
-  protected name: string;
+type employee struct {
+	name string
 }
 
-class Engineer extends Employee {}
-class Salesman extends Employee {}
+type Engineer struct {
+	employee
+}
+
+type Salesman struct {
+	employee
+}
 ```
 
-## Pull Up Constructor Body
+## Pull Up Constructor Body (via Constructor Helper)
 
-**When**: Subclass constructors have common code.
+**When**: Multiple constructors have common initialization code.
 
 **Steps**:
 
-1. Create superclass constructor if needed
-2. Move common statements to superclass
-3. Call super() from subclasses
+1. Create helper function for common initialization
+2. Call helper from each constructor
 
-```typescript
+```go
 // Before: Repeated initialization
-class Employee {
-  protected name: string;
+type Engineer struct {
+	name           string
+	specialization string
 }
 
-class Engineer extends Employee {
-  constructor(
-    name: string,
-    private specialization: string
-  ) {
-    super();
-    this.name = name;
-  }
+func NewEngineer(name, specialization string) *Engineer {
+	return &Engineer{name: name, specialization: specialization}
 }
 
-class Manager extends Employee {
-  constructor(
-    name: string,
-    private department: string
-  ) {
-    super();
-    this.name = name;
-  }
+type Manager struct {
+	name       string
+	department string
 }
 
-// After
-class Employee {
-  constructor(protected name: string) {}
+func NewManager(name, department string) *Manager {
+	return &Manager{name: name, department: department}
 }
 
-class Engineer extends Employee {
-  constructor(
-    name: string,
-    private specialization: string
-  ) {
-    super(name);
-  }
+// After: Shared base via embedding
+type employee struct {
+	name string
 }
 
-class Manager extends Employee {
-  constructor(
-    name: string,
-    private department: string
-  ) {
-    super(name);
-  }
+type Engineer struct {
+	employee
+	specialization string
+}
+
+func NewEngineer(name, specialization string) *Engineer {
+	return &Engineer{
+		employee:       employee{name: name},
+		specialization: specialization,
+	}
+}
+
+type Manager struct {
+	employee
+	department string
+}
+
+func NewManager(name, department string) *Manager {
+	return &Manager{
+		employee:   employee{name: name},
+		department: department,
+	}
 }
 ```
 
 ## Push Down Method
 
-**When**: Method only relevant to specific subclass.
+**When**: Method only relevant to a specific type; remove from shared struct.
 
 **Steps**:
 
-1. Copy method to subclass(es) that need it
-2. Remove from superclass
+1. Add method to the specific type(s) that need it
+2. Remove from shared struct
 
-```typescript
+```go
 // Before: Only Salesman uses quota
-class Employee {
-  get quota(): number {
-    return this._quota;
-  }
+type employee struct {
+	quota float64
+}
+
+func (e *employee) Quota() float64 { return e.quota }
+
+type Salesman struct {
+	employee
 }
 
 // After
-class Employee {}
+type employee struct{}
 
-class Salesman extends Employee {
-  get quota(): number {
-    return this._quota;
-  }
+type Salesman struct {
+	employee
+	quota float64
 }
+
+func (s *Salesman) Quota() float64 { return s.quota }
 ```
 
 ## Push Down Field
 
-**When**: Field only used by specific subclass.
+**When**: Field only used by specific type.
 
-```typescript
+```go
 // Before
-class Employee {
-  protected quota: number; // Only used by Salesman
+type employee struct {
+	quota float64 // Only used by Salesman
 }
 
 // After
-class Employee {}
+type employee struct{}
 
-class Salesman extends Employee {
-  private quota: number;
+type Salesman struct {
+	employee
+	quota float64
 }
 ```
 
-## Replace Subclass with Delegate
+## Replace Embedding with Delegate
 
-**When**: Inheritance doesn't fit; need more flexibility.
+**When**: Embedding doesn't fit; need more flexibility.
 
 **Why**:
 
-- Can only inherit once
-- Inheritance couples tightly
-- Subclass relationship isn't true is-a
+- Embedding exposes all methods, which may not be desired
+- Embedding creates tight coupling
+- Relationship isn't true is-a
 
 **Steps**:
 
-1. Create delegate class for subclass behavior
-2. Add delegate field to superclass
-3. Move subclass methods to delegate
-4. Replace subclass with factory that configures delegate
+1. Create delegate struct for the behavior
+2. Add delegate field to the struct
+3. Move embedded methods to delegate
+4. Replace embedding with explicit delegation
 
-```typescript
-// Before: Booking inheritance limits flexibility
-class Booking {
-  constructor(
-    protected show: Show,
-    protected date: Date
-  ) {}
-
-  get hasTalkback(): boolean {
-    return false;
-  }
-  get basePrice(): number {
-    return this.show.price;
-  }
+```go
+// Before: Booking embedding limits flexibility
+type Booking struct {
+	show Show
+	date time.Time
 }
 
-class PremiumBooking extends Booking {
-  constructor(
-    show: Show,
-    date: Date,
-    private extras: Extras
-  ) {
-    super(show, date);
-  }
+func (b *Booking) HasTalkback() bool { return false }
+func (b *Booking) BasePrice() float64 { return b.show.Price }
 
-  get hasTalkback(): boolean {
-    return this.show.hasOwnProperty('talkback') && !this.isPeakDay;
-  }
+type PremiumBooking struct {
+	Booking
+	extras Extras
+}
 
-  get basePrice(): number {
-    return Math.round(super.basePrice + this.extras.premiumFee);
-  }
+func (p *PremiumBooking) HasTalkback() bool {
+	return p.show.Talkback && !p.isPeakDay()
+}
+
+func (p *PremiumBooking) BasePrice() float64 {
+	return math.Round(p.Booking.BasePrice() + p.extras.PremiumFee)
 }
 
 // After: Delegate provides flexibility
-class Booking {
-  private premiumDelegate?: PremiumBookingDelegate;
-
-  constructor(
-    protected show: Show,
-    protected date: Date
-  ) {}
-
-  bePremium(extras: Extras): void {
-    this.premiumDelegate = new PremiumBookingDelegate(this, extras);
-  }
-
-  get hasTalkback(): boolean {
-    return this.premiumDelegate?.hasTalkback ?? false;
-  }
-
-  get basePrice(): number {
-    const base = this.show.price;
-    return this.premiumDelegate?.adjustPrice(base) ?? base;
-  }
+type Booking struct {
+	show            Show
+	date            time.Time
+	premiumDelegate *PremiumBookingDelegate
 }
 
-class PremiumBookingDelegate {
-  constructor(
-    private host: Booking,
-    private extras: Extras
-  ) {}
+func (b *Booking) BePremium(extras Extras) {
+	b.premiumDelegate = &PremiumBookingDelegate{host: b, extras: extras}
+}
 
-  get hasTalkback(): boolean {
-    return this.host.show.hasOwnProperty('talkback') && !this.host.isPeakDay;
-  }
+func (b *Booking) HasTalkback() bool {
+	if b.premiumDelegate != nil {
+		return b.premiumDelegate.HasTalkback()
+	}
+	return false
+}
 
-  adjustPrice(base: number): number {
-    return Math.round(base + this.extras.premiumFee);
-  }
+func (b *Booking) BasePrice() float64 {
+	base := b.show.Price
+	if b.premiumDelegate != nil {
+		return b.premiumDelegate.AdjustPrice(base)
+	}
+	return base
+}
+
+type PremiumBookingDelegate struct {
+	host   *Booking
+	extras Extras
+}
+
+func (d *PremiumBookingDelegate) HasTalkback() bool {
+	return d.host.show.Talkback && !d.host.isPeakDay()
+}
+
+func (d *PremiumBookingDelegate) AdjustPrice(base float64) float64 {
+	return math.Round(base + d.extras.PremiumFee)
 }
 ```
 
-## Extract Superclass
+## Extract Shared Interface
 
-**When**: Classes share features; hierarchy is appropriate.
+**When**: Structs share features; an interface captures the common contract.
 
 **Steps**:
 
-1. Create empty superclass
-2. Make classes extend it
-3. Pull up common features one by one
+1. Identify common methods across structs
+2. Define interface with those methods
+3. Ensure each struct satisfies the interface
 
-```typescript
-// Before: Department and Employee share features
-class Employee {
-  constructor(
-    protected name: string,
-    protected annualCost: number
-  ) {}
-  get monthlySpend(): number {
-    return this.annualCost / 12;
-  }
+```go
+// Before: Department and Employee share features but have no common type
+type Employee struct {
+	name       string
+	annualCost float64
 }
 
-class Department {
-  constructor(
-    protected name: string,
-    protected staff: Employee[]
-  ) {}
-  get totalAnnualCost(): number {
-    return this.staff.reduce((sum, e) => sum + e.annualCost, 0);
-  }
-  get monthlySpend(): number {
-    return this.totalAnnualCost / 12;
-  }
+func (e *Employee) Name() string         { return e.name }
+func (e *Employee) AnnualCost() float64  { return e.annualCost }
+func (e *Employee) MonthlySpend() float64 { return e.annualCost / 12 }
+
+type Department struct {
+	name  string
+	staff []*Employee
 }
 
-// After
-abstract class Party {
-  constructor(protected name: string) {}
-  abstract get annualCost(): number;
-  get monthlySpend(): number {
-    return this.annualCost / 12;
-  }
+func (d *Department) Name() string { return d.name }
+func (d *Department) AnnualCost() float64 {
+	total := 0.0
+	for _, e := range d.staff {
+		total += e.AnnualCost()
+	}
+	return total
+}
+func (d *Department) MonthlySpend() float64 { return d.AnnualCost() / 12 }
+
+// After: Extract shared interface
+type Party interface {
+	Name() string
+	AnnualCost() float64
+	MonthlySpend() float64
 }
 
-class Employee extends Party {
-  constructor(
-    name: string,
-    private _annualCost: number
-  ) {
-    super(name);
-  }
-  get annualCost(): number {
-    return this._annualCost;
-  }
-}
-
-class Department extends Party {
-  constructor(
-    name: string,
-    private staff: Employee[]
-  ) {
-    super(name);
-  }
-  get annualCost(): number {
-    return this.staff.reduce((sum, e) => sum + e.annualCost, 0);
-  }
-}
+// Employee and Department both satisfy Party implicitly
 ```
 
-## When to Prefer Delegation Over Inheritance
+## When to Prefer Delegation Over Embedding
 
-| Use Inheritance When               | Use Delegation When                 |
-| ---------------------------------- | ----------------------------------- |
-| True is-a relationship             | Has-a or uses-a relationship        |
-| Subclass uses most of superclass   | Only needs part of interface        |
-| Subclass is truly a specialization | Need runtime flexibility            |
-| Hierarchy is stable                | Behavior might change independently |
-| Only need single inheritance       | Need multiple "parents"             |
+| Use Embedding When                   | Use Delegation When                 |
+| ------------------------------------ | ----------------------------------- |
+| True is-a relationship               | Has-a or uses-a relationship        |
+| Outer struct uses most of embedded   | Only needs part of behavior         |
+| Outer struct is truly a specialization | Need runtime flexibility          |
+| Hierarchy is stable                  | Behavior might change independently |
+| Want promoted methods                | Want to hide internal methods       |

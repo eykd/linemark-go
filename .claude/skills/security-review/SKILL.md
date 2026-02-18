@@ -29,7 +29,7 @@ Systematic security review following OWASP guidelines and defense-in-depth princ
 
 ### Authentication & Sessions
 
-See [references/auth-security.md](references/auth-security.md) for password hashing (Argon2id), session management (`__Host-` cookies), account lockout, constant-time comparisons.
+See [references/auth-security.md](references/auth-security.md) for password hashing (Argon2id), session management (secure cookies), account lockout, constant-time comparisons.
 
 ### Web Security (XSS/CSRF/Headers)
 
@@ -47,74 +47,74 @@ See [references/checklist.md](references/checklist.md) for rapid security audit.
 
 ### Always Critical
 
-```typescript
+```go
 // SQL Injection - string interpolation
-db.prepare(`SELECT * FROM users WHERE id = '${userId}'`) // ❌
+db.QueryRow("SELECT * FROM users WHERE id = '" + userID + "'") // WRONG
+
 // Missing output encoding
-`<div>${userInput}</div>`; // ❌ (without safe template)
+fmt.Fprintf(w, "<div>%s</div>", userInput) // WRONG (use html/template)
 
 // Weak password hashing
-bcrypt.hash(password, 10); // ❌ Use Argon2id
-md5(password); // ❌
-sha256(password); // ❌ (no salt)
+md5.Sum([]byte(password))    // WRONG
+sha256.Sum256([]byte(password)) // WRONG (no salt)
 
 // Hardcoded secrets
-const API_KEY = 'sk-abc123...'; // ❌
+const apiKey = "sk-abc123..." // WRONG
 ```
 
 ### Always High
 
-```typescript
+```go
 // Missing CSRF on state-changing endpoints
-app.post('/api/transfer', handler)  // ❌ (no CSRF)
+mux.HandleFunc("POST /api/transfer", handler) // WRONG (no CSRF)
 
 // Insecure cookies
-res.cookie('session', id)  // ❌ (missing flags)
+http.SetCookie(w, &http.Cookie{Name: "session", Value: id}) // WRONG (missing flags)
 
 // Missing rate limiting on auth
-app.post('/login', handler)  // ❌
+mux.HandleFunc("POST /login", handler) // WRONG
 
 // Timing-vulnerable comparisons
-if (token === storedToken)  // ❌ (use constant-time)
+if token == storedToken { // WRONG (use crypto/subtle)
 ```
 
 ## Secure Patterns
 
 ### Safe HTML Templating
 
-```typescript
-function html(strings: TemplateStringsArray, ...values: unknown[]): string {
-  return strings.reduce((result, str, i) => {
-    const value = values[i - 1];
-    return result + encodeHtml(value) + str;
-  });
-}
-html`<div>${user.name}</div>`; // ✅ Auto-encoded
+```go
+// html/template auto-escapes by default
+tmpl := template.Must(template.New("page").Parse(`<div>{{.Name}}</div>`))
+tmpl.Execute(w, user) // auto-encoded
 ```
 
 ### Parameterized Queries
 
-```typescript
-await db.prepare('SELECT * FROM users WHERE id = ?').bind(userId).first(); // ✅
+```go
+db.QueryRowContext(ctx, "SELECT * FROM users WHERE id = $1", userID) // correct
 ```
 
 ### Secure Cookies
 
-```typescript
-`__Host-session=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/`; // ✅
+```go
+http.SetCookie(w, &http.Cookie{
+    Name:     "__Host-session",
+    Value:    sessionID,
+    Path:     "/",
+    HttpOnly: true,
+    Secure:   true,
+    SameSite: http.SameSiteLaxMode,
+    MaxAge:   86400,
+})
 ```
 
 ### Constant-Time Compare
 
-```typescript
-function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return result === 0;
-} // ✅
+```go
+import "crypto/subtle"
+
+// Use for all security-sensitive comparisons
+subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1 // correct
 ```
 
 ## Review Output Format
@@ -147,34 +147,43 @@ function constantTimeEqual(a: string, b: string): boolean {
 [Specific, actionable prompt with file paths and line numbers that addresses all Critical and High Priority items]
 
 ```
-
 ```
 
-## Framework-Specific
+## Go net/http Security
 
-### HTMX Security
+### Middleware Pattern
 
-```html
-<meta
-  name="htmx-config"
-  content='{
-  "selfRequestsOnly": true,
-  "allowScriptTags": false,
-  "allowEval": false
-}'
-/>
-<div hx-disable>${userContent}</div>
-<!-- Safe zone -->
+```go
+// securityHeaders wraps a handler to add standard security headers.
+func securityHeaders(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+        w.Header().Set("X-Content-Type-Options", "nosniff")
+        w.Header().Set("X-Frame-Options", "DENY")
+        w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+        w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        next.ServeHTTP(w, r)
+    })
+}
 ```
 
-### Cloudflare Workers
+### CSRF Middleware
 
-- Use `wrangler secret` for sensitive values
-- Verify KV TTL for sessions
-- Check D1 uses parameterized queries
-
-### Node.js/Express
-
-- Verify `helmet` middleware
-- Check `express-rate-limit`
-- Validate CSRF protection
+```go
+func csrfMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // Skip safe methods
+        if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+            next.ServeHTTP(w, r)
+            return
+        }
+        token := r.Header.Get("X-CSRF-Token")
+        session := getSession(r)
+        if session == nil || subtle.ConstantTimeCompare([]byte(token), []byte(session.CSRFToken)) != 1 {
+            http.Error(w, "CSRF validation failed", http.StatusForbidden)
+            return
+        }
+        next.ServeHTTP(w, r)
+    })
+}
+```

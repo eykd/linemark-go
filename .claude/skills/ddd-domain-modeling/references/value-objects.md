@@ -23,153 +23,167 @@ Value objects are immutable, defined by their attributes, and have no identity.
 
 ### Basic Value Object
 
-```typescript
-export class Email {
-  private readonly _value: string;
+```go
+// Email represents a validated email address.
+type Email struct {
+	value string
+}
 
-  private constructor(value: string) {
-    this._value = value;
-  }
+// NewEmail creates an Email, normalizing and validating the input.
+func NewEmail(value string) (Email, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if !isValidEmail(normalized) {
+		return Email{}, errors.New("invalid email format")
+	}
+	return Email{value: normalized}, nil
+}
 
-  static create(value: string): Email {
-    const normalized = value.toLowerCase().trim();
-    if (!Email.isValid(normalized)) {
-      throw new Error('Invalid email format');
-    }
-    return new Email(normalized);
-  }
+func isValidEmail(email string) bool {
+	parts := strings.SplitN(email, "@", 2)
+	return len(parts) == 2 && parts[0] != "" && strings.Contains(parts[1], ".")
+}
 
-  private static isValid(email: string): boolean {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  }
+// String returns the email address string.
+func (e Email) String() string { return e.value }
 
-  get value(): string {
-    return this._value;
-  }
+// Domain returns the domain portion of the email.
+func (e Email) Domain() string {
+	return strings.SplitN(e.value, "@", 2)[1]
+}
 
-  get domain(): string {
-    return this._value.split('@')[1];
-  }
-
-  equals(other: Email): boolean {
-    return this._value === other._value;
-  }
+// Equal reports whether two Email values are identical.
+func (e Email) Equal(other Email) bool {
+	return e.value == other.value
 }
 ```
 
 ### Enum-Style Value Object
 
-```typescript
-export class TaskStatus {
-  private static readonly PENDING = new TaskStatus('pending');
-  private static readonly IN_PROGRESS = new TaskStatus('in_progress');
-  private static readonly COMPLETED = new TaskStatus('completed');
+```go
+// TaskStatus represents the state of a task.
+type TaskStatus int
 
-  private constructor(private readonly _value: string) {}
+const (
+	TaskStatusPending    TaskStatus = iota
+	TaskStatusInProgress
+	TaskStatusCompleted
+)
 
-  static pending(): TaskStatus {
-    return TaskStatus.PENDING;
-  }
-  static inProgress(): TaskStatus {
-    return TaskStatus.IN_PROGRESS;
-  }
-  static completed(): TaskStatus {
-    return TaskStatus.COMPLETED;
-  }
+// String returns the string representation of the status.
+func (s TaskStatus) String() string {
+	switch s {
+	case TaskStatusPending:
+		return "pending"
+	case TaskStatusInProgress:
+		return "in_progress"
+	case TaskStatusCompleted:
+		return "completed"
+	default:
+		return "unknown"
+	}
+}
 
-  static fromString(value: string): TaskStatus {
-    switch (value) {
-      case 'pending':
-        return TaskStatus.PENDING;
-      case 'in_progress':
-        return TaskStatus.IN_PROGRESS;
-      case 'completed':
-        return TaskStatus.COMPLETED;
-      default:
-        throw new Error(`Invalid status: ${value}`);
-    }
-  }
+// ParseTaskStatus converts a string to a TaskStatus.
+func ParseTaskStatus(value string) (TaskStatus, error) {
+	switch value {
+	case "pending":
+		return TaskStatusPending, nil
+	case "in_progress":
+		return TaskStatusInProgress, nil
+	case "completed":
+		return TaskStatusCompleted, nil
+	default:
+		return 0, fmt.Errorf("invalid status: %s", value)
+	}
+}
 
-  get value(): string {
-    return this._value;
-  }
-  get isPending(): boolean {
-    return this === TaskStatus.PENDING;
-  }
-  get isCompleted(): boolean {
-    return this === TaskStatus.COMPLETED;
-  }
+// IsPending reports whether the status is pending.
+func (s TaskStatus) IsPending() bool { return s == TaskStatusPending }
 
-  canTransitionTo(target: TaskStatus): boolean {
-    if (this === TaskStatus.PENDING) {
-      return target === TaskStatus.IN_PROGRESS;
-    }
-    if (this === TaskStatus.IN_PROGRESS) {
-      return target === TaskStatus.COMPLETED || target === TaskStatus.PENDING;
-    }
-    return false; // Completed is terminal
-  }
+// IsCompleted reports whether the status is completed.
+func (s TaskStatus) IsCompleted() bool { return s == TaskStatusCompleted }
+
+// CanTransitionTo reports whether a transition to the target status is allowed.
+func (s TaskStatus) CanTransitionTo(target TaskStatus) bool {
+	switch s {
+	case TaskStatusPending:
+		return target == TaskStatusInProgress
+	case TaskStatusInProgress:
+		return target == TaskStatusCompleted || target == TaskStatusPending
+	default:
+		return false // Completed is terminal
+	}
 }
 ```
 
 ### Composite Value Object
 
-```typescript
-export class Money {
-  private constructor(
-    public readonly amount: number,
-    public readonly currency: string
-  ) {}
+```go
+// Money represents a monetary amount in cents with a currency code.
+type Money struct {
+	Amount   int    // cents
+	Currency string // 3-letter ISO 4217 code
+}
 
-  static of(amount: number, currency: string): Money {
-    if (!Number.isFinite(amount)) {
-      throw new Error('Amount must be a finite number');
-    }
-    if (amount < 0) {
-      throw new Error('Amount cannot be negative');
-    }
-    if (!/^[A-Z]{3}$/.test(currency)) {
-      throw new Error('Currency must be 3-letter ISO code');
-    }
-    // Round to 2 decimal places
-    return new Money(Math.round(amount * 100) / 100, currency);
-  }
+// NewMoney creates a Money value, validating inputs.
+func NewMoney(amount int, currency string) (Money, error) {
+	if amount < 0 {
+		return Money{}, errors.New("amount cannot be negative")
+	}
+	matched, _ := regexp.MatchString(`^[A-Z]{3}$`, currency)
+	if !matched {
+		return Money{}, errors.New("currency must be 3-letter ISO code")
+	}
+	return Money{Amount: amount, Currency: currency}, nil
+}
 
-  static zero(currency: string): Money {
-    return Money.of(0, currency);
-  }
+// MoneyZero returns a zero Money for the given currency.
+func MoneyZero(currency string) Money {
+	return Money{Amount: 0, Currency: currency}
+}
 
-  add(other: Money): Money {
-    this.assertSameCurrency(other);
-    return Money.of(this.amount + other.amount, this.currency);
-  }
+// Add returns a new Money with the sum. Returns error on currency mismatch.
+func (m Money) Add(other Money) (Money, error) {
+	if err := m.assertSameCurrency(other); err != nil {
+		return Money{}, err
+	}
+	return Money{Amount: m.Amount + other.Amount, Currency: m.Currency}, nil
+}
 
-  subtract(other: Money): Money {
-    this.assertSameCurrency(other);
-    if (other.amount > this.amount) {
-      throw new Error('Cannot subtract: would result in negative amount');
-    }
-    return Money.of(this.amount - other.amount, this.currency);
-  }
+// Subtract returns a new Money with the difference.
+func (m Money) Subtract(other Money) (Money, error) {
+	if err := m.assertSameCurrency(other); err != nil {
+		return Money{}, err
+	}
+	if other.Amount > m.Amount {
+		return Money{}, errors.New("cannot subtract: would result in negative amount")
+	}
+	return Money{Amount: m.Amount - other.Amount, Currency: m.Currency}, nil
+}
 
-  multiply(factor: number): Money {
-    if (factor < 0) throw new Error('Factor cannot be negative');
-    return Money.of(this.amount * factor, this.currency);
-  }
+// Multiply returns a new Money scaled by the given factor.
+func (m Money) Multiply(factor int) (Money, error) {
+	if factor < 0 {
+		return Money{}, errors.New("factor cannot be negative")
+	}
+	return Money{Amount: m.Amount * factor, Currency: m.Currency}, nil
+}
 
-  private assertSameCurrency(other: Money): void {
-    if (this.currency !== other.currency) {
-      throw new Error(`Currency mismatch: ${this.currency} vs ${other.currency}`);
-    }
-  }
+func (m Money) assertSameCurrency(other Money) error {
+	if m.Currency != other.Currency {
+		return fmt.Errorf("currency mismatch: %s vs %s", m.Currency, other.Currency)
+	}
+	return nil
+}
 
-  equals(other: Money): boolean {
-    return this.amount === other.amount && this.currency === other.currency;
-  }
+// Equal reports whether two Money values are identical.
+func (m Money) Equal(other Money) bool {
+	return m.Amount == other.Amount && m.Currency == other.Currency
+}
 
-  toString(): string {
-    return `${this.currency} ${this.amount.toFixed(2)}`;
-  }
+// String returns a human-readable representation.
+func (m Money) String() string {
+	return fmt.Sprintf("%s %d.%02d", m.Currency, m.Amount/100, m.Amount%100)
 }
 ```
 
@@ -177,169 +191,229 @@ export class Money {
 
 ### ID Value Object
 
-```typescript
-export class TaskId {
-  private constructor(public readonly value: string) {}
+```go
+// TaskID is a strongly-typed identifier for tasks.
+type TaskID struct {
+	value string
+}
 
-  static create(): TaskId {
-    return new TaskId(crypto.randomUUID());
-  }
+// NewTaskID generates a new random TaskID.
+func NewTaskID() TaskID {
+	return TaskID{value: uuid.NewString()}
+}
 
-  static from(value: string): TaskId {
-    if (!value || value.trim().length === 0) {
-      throw new Error('TaskId cannot be empty');
-    }
-    return new TaskId(value);
-  }
+// ParseTaskID creates a TaskID from an existing string.
+func ParseTaskID(value string) (TaskID, error) {
+	if strings.TrimSpace(value) == "" {
+		return TaskID{}, errors.New("task ID cannot be empty")
+	}
+	return TaskID{value: value}, nil
+}
 
-  equals(other: TaskId): boolean {
-    return this.value === other.value;
-  }
+// String returns the ID string.
+func (id TaskID) String() string { return id.value }
+
+// Equal reports whether two TaskIDs are identical.
+func (id TaskID) Equal(other TaskID) bool {
+	return id.value == other.value
 }
 ```
 
 ### Date Range Value Object
 
-```typescript
-export class DateRange {
-  private constructor(
-    public readonly start: Date,
-    public readonly end: Date
-  ) {}
+```go
+// DateRange represents a start-end time interval.
+type DateRange struct {
+	Start time.Time
+	End   time.Time
+}
 
-  static create(start: Date, end: Date): DateRange {
-    if (end < start) {
-      throw new Error('End date must be after start date');
-    }
-    return new DateRange(start, end);
-  }
+// NewDateRange creates a DateRange, validating that end is after start.
+func NewDateRange(start, end time.Time) (DateRange, error) {
+	if end.Before(start) {
+		return DateRange{}, errors.New("end date must be after start date")
+	}
+	return DateRange{Start: start, End: end}, nil
+}
 
-  contains(date: Date): boolean {
-    return date >= this.start && date <= this.end;
-  }
+// Contains reports whether the given time falls within the range.
+func (r DateRange) Contains(t time.Time) bool {
+	return !t.Before(r.Start) && !t.After(r.End)
+}
 
-  overlaps(other: DateRange): boolean {
-    return this.start <= other.end && this.end >= other.start;
-  }
+// Overlaps reports whether two ranges share any time.
+func (r DateRange) Overlaps(other DateRange) bool {
+	return !r.Start.After(other.End) && !r.End.Before(other.Start)
+}
 
-  get durationInDays(): number {
-    return Math.ceil((this.end.getTime() - this.start.getTime()) / (1000 * 60 * 60 * 24));
-  }
+// DurationDays returns the number of days in the range.
+func (r DateRange) DurationDays() int {
+	return int(r.End.Sub(r.Start).Hours() / 24)
 }
 ```
 
 ### Address Value Object
 
-```typescript
-export class Address {
-  private constructor(
-    public readonly street: string,
-    public readonly city: string,
-    public readonly postalCode: string,
-    public readonly country: string
-  ) {}
+```go
+// Address represents a postal address.
+type Address struct {
+	Street     string
+	City       string
+	PostalCode string
+	Country    string
+}
 
-  static create(props: {
-    street: string;
-    city: string;
-    postalCode: string;
-    country: string;
-  }): Address {
-    if (!props.street?.trim()) throw new Error('Street is required');
-    if (!props.city?.trim()) throw new Error('City is required');
-    if (!props.postalCode?.trim()) throw new Error('Postal code is required');
-    if (!props.country?.trim()) throw new Error('Country is required');
+// NewAddress creates an Address, validating all fields.
+func NewAddress(street, city, postalCode, country string) (Address, error) {
+	street = strings.TrimSpace(street)
+	city = strings.TrimSpace(city)
+	postalCode = strings.ToUpper(strings.TrimSpace(postalCode))
+	country = strings.TrimSpace(country)
 
-    return new Address(
-      props.street.trim(),
-      props.city.trim(),
-      props.postalCode.trim().toUpperCase(),
-      props.country.trim()
-    );
-  }
+	if street == "" {
+		return Address{}, errors.New("street is required")
+	}
+	if city == "" {
+		return Address{}, errors.New("city is required")
+	}
+	if postalCode == "" {
+		return Address{}, errors.New("postal code is required")
+	}
+	if country == "" {
+		return Address{}, errors.New("country is required")
+	}
 
-  equals(other: Address): boolean {
-    return (
-      this.street === other.street &&
-      this.city === other.city &&
-      this.postalCode === other.postalCode &&
-      this.country === other.country
-    );
-  }
+	return Address{
+		Street:     street,
+		City:       city,
+		PostalCode: postalCode,
+		Country:    country,
+	}, nil
+}
 
-  format(): string {
-    return `${this.street}, ${this.city}, ${this.postalCode}, ${this.country}`;
-  }
+// Equal reports whether two Address values are identical.
+func (a Address) Equal(other Address) bool {
+	return a.Street == other.Street &&
+		a.City == other.City &&
+		a.PostalCode == other.PostalCode &&
+		a.Country == other.Country
+}
+
+// String returns a formatted address string.
+func (a Address) String() string {
+	return fmt.Sprintf("%s, %s, %s, %s", a.Street, a.City, a.PostalCode, a.Country)
 }
 ```
 
 ## Equality and Comparison
 
-Always implement `equals()`:
+Always implement `Equal()`:
 
-```typescript
+```go
 // By value comparison
-equals(other: Money): boolean {
-  return this.amount === other.amount && this.currency === other.currency;
+func (m Money) Equal(other Money) bool {
+	return m.Amount == other.Amount && m.Currency == other.Currency
 }
 
 // In collections
-const prices = [Money.of(10, "USD"), Money.of(20, "USD")];
-const target = Money.of(10, "USD");
-const found = prices.find(p => p.equals(target)); // Works
+prices := []Money{must(NewMoney(1000, "USD")), must(NewMoney(2000, "USD"))}
+target := must(NewMoney(1000, "USD"))
+for _, p := range prices {
+	if p.Equal(target) {
+		// found
+	}
+}
 ```
 
 ## Testing Value Objects
 
-```typescript
-describe('Money', () => {
-  describe('creation', () => {
-    it('creates money with valid amount and currency', () => {
-      const money = Money.of(100, 'USD');
-      expect(money.amount).toBe(100);
-      expect(money.currency).toBe('USD');
-    });
+```go
+func TestNewMoney(t *testing.T) {
+	tests := []struct {
+		name     string
+		amount   int
+		currency string
+		wantErr  string
+	}{
+		{
+			name:     "creates money with valid amount and currency",
+			amount:   10000,
+			currency: "USD",
+		},
+		{
+			name:     "rejects negative amounts",
+			amount:   -1000,
+			currency: "USD",
+			wantErr:  "cannot be negative",
+		},
+		{
+			name:     "rejects invalid currency codes",
+			amount:   1000,
+			currency: "US",
+			wantErr:  "3-letter ISO",
+		},
+	}
 
-    it('rounds to 2 decimal places', () => {
-      const money = Money.of(10.999, 'USD');
-      expect(money.amount).toBe(11);
-    });
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			money, err := NewMoney(tt.amount, tt.currency)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("want error containing %q, got %v", tt.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if money.Amount != tt.amount {
+				t.Errorf("want amount %d, got %d", tt.amount, money.Amount)
+			}
+			if money.Currency != tt.currency {
+				t.Errorf("want currency %q, got %q", tt.currency, money.Currency)
+			}
+		})
+	}
+}
 
-    it('rejects negative amounts', () => {
-      expect(() => Money.of(-10, 'USD')).toThrow('cannot be negative');
-    });
+func TestMoney_Add(t *testing.T) {
+	t.Run("adds same currency", func(t *testing.T) {
+		a, _ := NewMoney(1000, "USD")
+		b, _ := NewMoney(2000, "USD")
+		result, err := a.Add(b)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Amount != 3000 {
+			t.Errorf("want 3000, got %d", result.Amount)
+		}
+	})
 
-    it('rejects invalid currency codes', () => {
-      expect(() => Money.of(10, 'US')).toThrow('3-letter ISO');
-    });
-  });
+	t.Run("rejects adding different currencies", func(t *testing.T) {
+		usd, _ := NewMoney(1000, "USD")
+		eur, _ := NewMoney(1000, "EUR")
+		_, err := usd.Add(eur)
+		if err == nil || !strings.Contains(err.Error(), "currency mismatch") {
+			t.Fatalf("want currency mismatch error, got %v", err)
+		}
+	})
+}
 
-  describe('operations', () => {
-    it('adds same currency', () => {
-      const a = Money.of(10, 'USD');
-      const b = Money.of(20, 'USD');
-      expect(a.add(b).amount).toBe(30);
-    });
+func TestMoney_Equal(t *testing.T) {
+	t.Run("equals same value", func(t *testing.T) {
+		a, _ := NewMoney(1000, "USD")
+		b, _ := NewMoney(1000, "USD")
+		if !a.Equal(b) {
+			t.Error("want equal, got not equal")
+		}
+	})
 
-    it('rejects adding different currencies', () => {
-      const usd = Money.of(10, 'USD');
-      const eur = Money.of(10, 'EUR');
-      expect(() => usd.add(eur)).toThrow('Currency mismatch');
-    });
-  });
-
-  describe('equality', () => {
-    it('equals same value', () => {
-      const a = Money.of(10, 'USD');
-      const b = Money.of(10, 'USD');
-      expect(a.equals(b)).toBe(true);
-    });
-
-    it('not equals different amount', () => {
-      const a = Money.of(10, 'USD');
-      const b = Money.of(20, 'USD');
-      expect(a.equals(b)).toBe(false);
-    });
-  });
-});
+	t.Run("not equals different amount", func(t *testing.T) {
+		a, _ := NewMoney(1000, "USD")
+		b, _ := NewMoney(2000, "USD")
+		if a.Equal(b) {
+			t.Error("want not equal, got equal")
+		}
+	})
+}
 ```

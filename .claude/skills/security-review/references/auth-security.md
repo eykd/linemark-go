@@ -13,35 +13,49 @@
 
 OWASP 2025 recommendation. Protects against GPU and side-channel attacks.
 
-```typescript
-import { argon2id } from '@noble/hashes/argon2';
-import { randomBytes } from '@noble/hashes/utils';
+```go
+import "golang.org/x/crypto/argon2"
 
-const config = {
-  memoryCost: 19456, // 19 MiB minimum
-  timeCost: 2,
-  parallelism: 1,
-  hashLength: 32,
-  saltLength: 16,
-};
+type argon2Params struct {
+	Memory      uint32
+	Iterations  uint32
+	Parallelism uint8
+	SaltLength  uint32
+	KeyLength   uint32
+}
 
-async function hashPassword(password: string): Promise<string> {
-  const salt = randomBytes(config.saltLength);
-  const hash = argon2id(password, salt, {
-    m: config.memoryCost,
-    t: config.timeCost,
-    p: config.parallelism,
-    dkLen: config.hashLength,
-  });
-  const saltB64 = btoa(String.fromCharCode(...salt));
-  const hashB64 = btoa(String.fromCharCode(...hash));
-  return `$argon2id$v=19$m=${config.memoryCost},t=${config.timeCost},p=${config.parallelism}$${saltB64}$${hashB64}`;
+var defaultParams = argon2Params{
+	Memory:      19456, // 19 MiB minimum
+	Iterations:  2,
+	Parallelism: 1,
+	SaltLength:  16,
+	KeyLength:   32,
+}
+
+func hashPassword(password string) (string, error) {
+	salt := make([]byte, defaultParams.SaltLength)
+	if _, err := rand.Read(salt); err != nil {
+		return "", fmt.Errorf("generating salt: %w", err)
+	}
+
+	hash := argon2.IDKey(
+		[]byte(password), salt,
+		defaultParams.Iterations, defaultParams.Memory,
+		defaultParams.Parallelism, defaultParams.KeyLength,
+	)
+
+	saltB64 := base64.RawStdEncoding.EncodeToString(salt)
+	hashB64 := base64.RawStdEncoding.EncodeToString(hash)
+
+	return fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s",
+		defaultParams.Memory, defaultParams.Iterations,
+		defaultParams.Parallelism, saltB64, hashB64), nil
 }
 ```
 
 ### Flag These as Critical
 
-- `md5()`, `sha1()`, `sha256()` without salt
+- `md5`, `sha1`, `sha256` without salt
 - `bcrypt` (use Argon2id instead)
 - Plain text passwords
 - Reversible encryption for passwords
@@ -57,15 +71,16 @@ async function hashPassword(password: string): Promise<string> {
 
 ### Secure Cookie Pattern
 
-```typescript
-const cookie = [
-  `__Host-session=${sessionId}`, // __Host- prefix required
-  'HttpOnly', // No JavaScript access
-  'Secure', // HTTPS only
-  'SameSite=Lax', // CSRF protection
-  'Path=/', // Required for __Host-
-  `Max-Age=${SESSION_TTL}`,
-].join('; ');
+```go
+http.SetCookie(w, &http.Cookie{
+	Name:     "__Host-session",  // __Host- prefix required
+	Value:    sessionID,
+	Path:     "/",               // Required for __Host-
+	HttpOnly: true,              // No JavaScript access
+	Secure:   true,              // HTTPS only
+	SameSite: http.SameSiteLaxMode, // CSRF protection
+	MaxAge:   sessionTTLSeconds,
+})
 ```
 
 ### Session ID Requirements
@@ -74,22 +89,35 @@ const cookie = [
 - Generated server-side only
 - Regenerate on privilege changes (login, role change)
 
-```typescript
-function generateSessionId(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+```go
+import "crypto/rand"
+
+func generateSessionID() (string, error) {
+	b := make([]byte, 32) // 256 bits
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generating session ID: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }
 ```
 
-### Session Storage (KV Example)
+### Session Storage
 
-```typescript
-// Store with TTL for automatic expiration
-await env.SESSIONS.put(
-  `session:${sessionId}`,
-  JSON.stringify({ userId, csrfToken, createdAt }),
-  { expirationTtl: 86400 } // 24 hours
-);
+```go
+// Store session with TTL for automatic expiration
+type SessionStore interface {
+	Get(ctx context.Context, id string) (*Session, error)
+	Put(ctx context.Context, session *Session) error
+	Delete(ctx context.Context, id string) error
+}
+
+type Session struct {
+	ID        string
+	UserID    string
+	CSRFToken string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
 ```
 
 ### Flag These as High
@@ -104,50 +132,51 @@ await env.SESSIONS.put(
 
 ### Account Lockout
 
-```typescript
-class User {
-  static readonly MAX_FAILED_ATTEMPTS = 5;
-  static readonly LOCK_DURATION_MS = 15 * 60 * 1000;
+```go
+const (
+	maxFailedAttempts = 5
+	lockDuration      = 15 * time.Minute
+)
 
-  isLocked(): boolean {
-    if (!this.lockedUntil) return false;
-    return new Date() < new Date(this.lockedUntil);
-  }
+// User tracks authentication state.
+type User struct {
+	// ...
+	failedLoginAttempts int
+	lockedUntil         time.Time
+}
 
-  recordFailedLogin(): User {
-    const attempts = this.failedLoginAttempts + 1;
-    const shouldLock = attempts >= User.MAX_FAILED_ATTEMPTS;
-    return new User({
-      ...this.data,
-      failedLoginAttempts: attempts,
-      lockedUntil: shouldLock ? new Date(Date.now() + User.LOCK_DURATION_MS).toISOString() : null,
-    });
-  }
+// IsLocked reports whether the account is currently locked.
+func (u *User) IsLocked(now time.Time) bool {
+	return !u.lockedUntil.IsZero() && now.Before(u.lockedUntil)
+}
+
+// RecordFailedLogin increments the failure count and locks if threshold exceeded.
+func (u *User) RecordFailedLogin(now time.Time) {
+	u.failedLoginAttempts++
+	if u.failedLoginAttempts >= maxFailedAttempts {
+		u.lockedUntil = now.Add(lockDuration)
+	}
 }
 ```
 
 ### Rate Limiting (Sliding Window)
 
-```typescript
-interface RateLimitResult {
-  allowed: boolean;
-  remaining: number;
-  resetAt: Date;
+```go
+// RateLimitResult holds the outcome of a rate limit check.
+type RateLimitResult struct {
+	Allowed   bool
+	Remaining int
+	ResetAt   time.Time
 }
 
-async function checkRateLimit(
-  key: string,
-  limit: number,
-  windowMs: number
-): Promise<RateLimitResult> {
-  const now = Date.now();
-  const windowStart = now - windowMs;
-  // Sliding window implementation...
+// RateLimiter checks request rates per key.
+type RateLimiter interface {
+	Check(ctx context.Context, key string, limit int, window time.Duration) (RateLimitResult, error)
 }
 
 // Apply to auth endpoints
-const ipLimit = await checkRateLimit(`ip:${clientIp}`, 10, 60000);
-const accountLimit = await checkRateLimit(`account:${email}`, 5, 300000);
+// ipResult, _ := limiter.Check(ctx, "ip:"+clientIP, 10, time.Minute)
+// accountResult, _ := limiter.Check(ctx, "account:"+email, 5, 5*time.Minute)
 ```
 
 ### Flag These as High
@@ -161,24 +190,12 @@ const accountLimit = await checkRateLimit(`account:${email}`, 5, 300000);
 
 ### Constant-Time Comparison
 
-```typescript
-function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return result === 0;
-}
+```go
+import "crypto/subtle"
 
-// For Uint8Array
-function constantTimeEqualBytes(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a[i] ^ b[i];
-  }
-  return result === 0;
+// Use for all security-sensitive comparisons
+func constantTimeEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 ```
 
@@ -192,39 +209,47 @@ function constantTimeEqualBytes(a: Uint8Array, b: Uint8Array): boolean {
 
 ### Flag These as High
 
-- `===` or `==` for tokens/secrets
+- `==` for tokens/secrets
 - Early return on mismatch
-- `String.prototype.localeCompare()`
+- `strings.Compare()` for security values
 
 ## Account Enumeration Prevention
 
 ### Generic Error Messages
 
-```typescript
-// ❌ Wrong - reveals valid accounts
-if (!user) return error('User not found');
-if (!validPassword) return error('Invalid password');
+```go
+// WRONG - reveals valid accounts
+if user == nil {
+	return errors.New("user not found")
+}
+if !validPassword {
+	return errors.New("invalid password")
+}
 
-// ✅ Correct - generic message
-if (!user || !validPassword) {
-  return error('Invalid email or password');
+// CORRECT - generic message
+if user == nil || !validPassword {
+	return errors.New("invalid email or password")
 }
 ```
 
 ### Consistent Timing
 
-```typescript
-async function login(email: string, password: string) {
-  const user = await findUser(email);
+```go
+func login(ctx context.Context, email, password string) error {
+	user, err := findUser(ctx, email)
 
-  // Always hash even if user not found (prevents timing leak)
-  const dummyHash = '$argon2id$v=19$m=19456,t=2,p=1$...';
-  const hashToVerify = user?.passwordHash ?? dummyHash;
+	// Always hash even if user not found (prevents timing leak)
+	dummyHash := "$argon2id$v=19$m=19456,t=2,p=1$..."
+	hashToVerify := dummyHash
+	if err == nil && user != nil {
+		hashToVerify = user.PasswordHash
+	}
 
-  const valid = await verifyPassword(password, hashToVerify);
+	valid := verifyPassword(password, hashToVerify)
 
-  if (!user || !valid) {
-    return error('Invalid email or password');
-  }
+	if user == nil || !valid {
+		return errors.New("invalid email or password")
+	}
+	return nil
 }
 ```

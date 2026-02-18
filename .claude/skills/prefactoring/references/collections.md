@@ -4,7 +4,7 @@
 
 ## When to Use
 
-- Working with arrays/lists that have domain meaning
+- Working with slices/maps that have domain meaning
 - Deciding where methods should live
 - Encapsulating aggregate operations
 - Preventing feature envy anti-pattern
@@ -15,27 +15,32 @@
 
 Wrap collections when they have domain-specific operations.
 
-```typescript
-// Bad: Raw array with scattered logic
-const items: OrderItem[] = [];
-const total = items.reduce((sum, item) => sum + item.price, 0);
-const hasDiscount = items.length > 10;
+```go
+// Bad: Raw slice with scattered logic
+items := []OrderItem{}
+total := 0.0
+for _, item := range items {
+    total += item.Price
+}
+hasDiscount := len(items) > 10
 
-// Good: Domain collection with behavior
-class OrderItems {
-  constructor(private readonly items: OrderItem[]) {}
+// Good: Named slice type with behavior
+type OrderItems []OrderItem
 
-  total(): Money {
-    return this.items.reduce((sum, item) => sum.add(item.price), Money.zero());
-  }
+func (oi OrderItems) Total() Money {
+    sum := MoneyZero()
+    for _, item := range oi {
+        sum = sum.Add(item.Price)
+    }
+    return sum
+}
 
-  hasDiscount(): boolean {
-    return this.items.length > BULK_DISCOUNT_THRESHOLD;
-  }
+func (oi OrderItems) HasDiscount() bool {
+    return len(oi) > BulkDiscountThreshold
+}
 
-  isEmpty(): boolean {
-    return this.items.length === 0;
-  }
+func (oi OrderItems) IsEmpty() bool {
+    return len(oi) == 0
 }
 ```
 
@@ -43,92 +48,98 @@ class OrderItems {
 
 Methods belong where their data lives. Avoid feature envy.
 
-```typescript
-// Bad: Feature envy - method uses another object's data
-class OrderPrinter {
-  print(order: Order): string {
-    return `${order.id}: ${order.items.length} items, $${order.total}`;
-  }
+```go
+// Bad: Feature envy - function uses another object's data
+func PrintOrder(order Order) string {
+    return fmt.Sprintf("%s: %d items, $%s", order.ID, len(order.Items), order.Total)
 }
 
-class OrderValidator {
-  isValid(order: Order): boolean {
-    return order.items.length > 0 && order.total > 0;
-  }
+func IsValidOrder(order Order) bool {
+    return len(order.Items) > 0 && order.Total > 0
 }
 
-// Good: Methods on the object with the data
-class Order {
-  toString(): string {
-    return `${this.id}: ${this.items.length} items, $${this.total}`;
-  }
+// Good: Methods on the type with the data
+type Order struct {
+    ID    string
+    Items OrderItems
+    Total Money
+}
 
-  isValid(): boolean {
-    return this.items.length > 0 && this.total > 0;
-  }
+func (o Order) String() string {
+    return fmt.Sprintf("%s: %d items, $%s", o.ID, len(o.Items), o.Total)
+}
+
+func (o Order) IsValid() bool {
+    return len(o.Items) > 0 && o.Total.IsPositive()
 }
 ```
 
-### Static Methods for Non-Instance Operations
+### Package-Level Functions for Non-Instance Operations
 
-If a method doesn't need instance data, it shouldn't be a member.
+If a function doesn't need receiver data, it should be a package-level function.
 
-```typescript
-// Bad: Instance method that doesn't use instance data
-class DateUtils {
-  formatDate(date: Date): string {
-    return date.toISOString().split('T')[0];
-  }
+```go
+// Bad: Method that doesn't use receiver data
+type DateUtils struct{}
+
+func (d DateUtils) FormatDate(t time.Time) string {
+    return t.Format("2006-01-02")
 }
 
-// Good: Static or module-level function
-function formatDate(date: Date): string {
-  return date.toISOString().split('T')[0];
-}
-
-// Or as a static method
-class DateUtils {
-  static formatDate(date: Date): string {
-    return date.toISOString().split('T')[0];
-  }
+// Good: Package-level function
+func FormatDate(t time.Time) string {
+    return t.Format("2006-01-02")
 }
 ```
 
 ## Decision Matrix
 
-| Situation                       | Apply                  | Action                         |
-| ------------------------------- | ---------------------- | ------------------------------ |
-| Array with operations           | Collection Wrapper     | Create domain collection class |
-| Method uses other object's data | Place Methods by Need  | Move to data owner             |
-| Method doesn't use `this`       | Static/Module Function | Extract to static or function  |
-| Multiple methods on same data   | Domain Object          | Group into cohesive class      |
+| Situation                       | Apply                     | Action                          |
+| ------------------------------- | ------------------------- | ------------------------------- |
+| Slice with operations           | Named Slice Type          | Create domain collection type   |
+| Method uses other type's data   | Place Methods by Need     | Move to data owner              |
+| Method doesn't use receiver     | Package-Level Function    | Extract to package function     |
+| Multiple methods on same data   | Domain Type               | Group into cohesive struct      |
 
 ## Collection Wrapper Checklist
 
 When creating a domain collection, consider:
 
-- [ ] Does it encapsulate the underlying array/map?
+- [ ] Does it encapsulate the underlying slice/map?
 - [ ] Does it provide domain-specific query methods?
 - [ ] Does it enforce invariants (e.g., non-empty)?
 - [ ] Does it hide implementation details?
 
-```typescript
-class UserGroup {
-  private constructor(private readonly users: User[]) {
-    if (users.length === 0) throw new EmptyGroupError();
-  }
+```go
+// UserGroup is a non-empty collection of users.
+type UserGroup struct {
+    users []User
+}
 
-  static create(users: User[]): UserGroup {
-    return new UserGroup(users);
-  }
+func NewUserGroup(users []User) (UserGroup, error) {
+    if len(users) == 0 {
+        return UserGroup{}, &EmptyGroupError{}
+    }
+    return UserGroup{users: users}, nil
+}
 
-  findByEmail(email: Email): User | undefined {
-    return this.users.find((u) => u.email.equals(email));
-  }
+func (g UserGroup) FindByEmail(email Email) (User, bool) {
+    for _, u := range g.users {
+        if u.Email.Equals(email) {
+            return u, true
+        }
+    }
+    return User{}, false
+}
 
-  activeUsers(): UserGroup {
-    return new UserGroup(this.users.filter((u) => u.isActive));
-  }
+func (g UserGroup) ActiveUsers() (UserGroup, error) {
+    var active []User
+    for _, u := range g.users {
+        if u.IsActive {
+            active = append(active, u)
+        }
+    }
+    return NewUserGroup(active)
 }
 ```
 
