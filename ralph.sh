@@ -7,7 +7,7 @@
 set -euo pipefail
 
 # Script version
-readonly VERSION="1.0.0"
+readonly VERSION="2.0.0"
 
 # Default configuration
 readonly DEFAULT_MAX_ITERATIONS=50
@@ -21,6 +21,16 @@ readonly MAX_RETRY_DELAY=300  # 5 minutes cap
 
 # Claude CLI timeout
 readonly CLAUDE_TIMEOUT=1800  # 30 minutes max per invocation
+
+# TDD cycle configuration
+readonly TDD_STEP_RETRIES=3        # retries per step (semantic failures)
+readonly TDD_STEP_RETRY_DELAY=10   # seconds between step retries
+readonly TDD_MAX_CYCLES=5          # max R-G-R-Review cycles per task
+readonly STEP_RED="RED"
+readonly STEP_GREEN="GREEN"
+readonly STEP_REFACTOR="REFACTOR"
+readonly STEP_REVIEW="REVIEW"
+readonly REVIEW_OUTPUT_FILE=".ralph-review.json"
 
 # Exit codes
 readonly EXIT_SUCCESS=0
@@ -944,6 +954,735 @@ EOF
 }
 
 ##############################################################################
+# TDD helper functions
+##############################################################################
+
+# Load skill content from .claude/skills/<name>/SKILL.md
+# Returns content on stdout. Falls back gracefully if file missing.
+load_skill_content() {
+    local skill_name="$1"
+    local skill_path=".claude/skills/${skill_name}/SKILL.md"
+
+    if [[ -f "$skill_path" ]]; then
+        cat "$skill_path"
+    else
+        log WARN "Skill file not found: $skill_path"
+        echo "(Skill $skill_name not available)"
+    fi
+}
+
+# Check that tests pass before starting RED step.
+# If tests are already failing, mark task BLOCKED and skip.
+# Allows "no test files" as valid baseline (go test exits 0 with "no test files").
+check_baseline_tests() {
+    local test_output exit_code
+
+    log INFO "Checking baseline tests before RED step..."
+
+    test_output=$(go test ./... 2>&1) && exit_code=0 || exit_code=$?
+
+    if [[ "$exit_code" -ne 0 ]]; then
+        log ERROR "Baseline tests are failing - cannot start RED step"
+        log_block "Baseline Test Output" "$test_output"
+        return 1
+    fi
+
+    log INFO "Baseline tests pass (or no test files) - ready for RED"
+    return 0
+}
+
+# Ralph's spot-check gate between TDD steps.
+# RED: expects test failure (exit != 0)
+# GREEN/REFACTOR: expects test success (exit == 0)
+run_verification() {
+    local step="$1"
+    local test_output exit_code
+
+    log INFO "Running verification for $step step..."
+
+    test_output=$(go test ./... 2>&1) && exit_code=0 || exit_code=$?
+
+    case "$step" in
+        "$STEP_RED")
+            if [[ "$exit_code" -ne 0 ]]; then
+                log INFO "RED verification passed: tests fail as expected"
+                return 0
+            else
+                log ERROR "RED verification failed: tests should fail but pass"
+                log_block "Test Output ($step)" "$test_output"
+                return 1
+            fi
+            ;;
+        "$STEP_GREEN"|"$STEP_REFACTOR")
+            if [[ "$exit_code" -eq 0 ]]; then
+                log INFO "$step verification passed: tests pass"
+                return 0
+            else
+                log ERROR "$step verification failed: tests should pass but fail"
+                log_block "Test Output ($step)" "$test_output"
+                return 1
+            fi
+            ;;
+        *)
+            log ERROR "Unknown step for verification: $step"
+            return 1
+            ;;
+    esac
+}
+
+# Detect if REFACTOR made changes. No changes -> skip verification and commit.
+check_for_changes() {
+    if git diff --quiet HEAD 2>/dev/null; then
+        log INFO "No changes detected after REFACTOR"
+        return 1  # no changes
+    else
+        log INFO "Changes detected after REFACTOR"
+        return 0  # has changes
+    fi
+}
+
+##############################################################################
+# TDD prompt generators
+##############################################################################
+
+# Generate RED step prompt: write failing test ONLY
+# Arguments: task_json, cycle_number, [remaining_items], [retry_context]
+generate_red_prompt() {
+    local task_json="$1"
+    local cycle="$2"
+    local remaining_items="${3:-}"
+    local retry_context="${4:-}"
+    local task_title task_id task_description
+    local go_tdd_skill
+
+    task_title=$(echo "$task_json" | jq -r '.title // "unknown"')
+    task_id=$(echo "$task_json" | jq -r '.id // "unknown"')
+    task_description=$(echo "$task_json" | jq -r '.description // ""')
+
+    go_tdd_skill=$(load_skill_content "go-tdd")
+
+    cat <<PROMPT_EOF
+## Non-Interactive Mode
+You are running in ralph's automation loop (non-interactive).
+You CANNOT ask questions or wait for user input.
+Communicate status ONLY through beads task management.
+
+## TDD Step: RED (Cycle $cycle of $TDD_MAX_CYCLES)
+
+### Task Details
+Title: $task_title
+ID: $task_id
+
+Description:
+$task_description
+
+### Your Mission: Write FAILING Tests ONLY
+
+You MUST write tests that FAIL. Do NOT write any implementation code.
+
+**Rules:**
+1. Write test(s) that cover the task requirements
+2. Tests MUST fail when run (compile errors count as failing)
+3. Do NOT write any production/implementation code
+4. Do NOT modify existing passing tests
+5. Use table-driven tests where appropriate
+6. Follow Go testing conventions
+
+PROMPT_EOF
+
+    # bd start only on first cycle
+    if [[ "$cycle" -eq 1 ]]; then
+        cat <<PROMPT_EOF
+
+### Bead Management
+1. Start task: \`npx bd start $task_id\`
+2. Comment progress: \`npx bd comment $task_id "RED: wrote failing tests for ..."\`
+PROMPT_EOF
+    else
+        cat <<PROMPT_EOF
+
+### Bead Management
+- Comment progress: \`npx bd comment $task_id "RED cycle $cycle: wrote failing tests for ..."\`
+- Do NOT start or close the bead (already started)
+PROMPT_EOF
+    fi
+
+    # Feed remaining items from REVIEW if this is cycle > 1
+    if [[ -n "$remaining_items" ]]; then
+        cat <<PROMPT_EOF
+
+### Focus Areas (from previous REVIEW)
+The following items were identified as incomplete or missing:
+$remaining_items
+
+Write tests targeting these specific gaps.
+PROMPT_EOF
+    fi
+
+    # Add retry context if retrying after failed verification
+    if [[ -n "$retry_context" ]]; then
+        cat <<PROMPT_EOF
+
+### Retry Context (Previous Attempt Failed Verification)
+The previous RED attempt failed verification. The tests were expected to fail
+but they passed instead. This means you need to write tests for behavior that
+is NOT yet implemented.
+
+Previous test output:
+$retry_context
+PROMPT_EOF
+    fi
+
+    cat <<PROMPT_EOF
+
+### Do NOT Commit
+Ralph handles commits. Do NOT run git commit.
+
+### Go TDD Reference
+$go_tdd_skill
+PROMPT_EOF
+}
+
+# Generate GREEN step prompt: write minimum code to pass
+# Arguments: task_json, cycle_number, [retry_context]
+generate_green_prompt() {
+    local task_json="$1"
+    local cycle="$2"
+    local retry_context="${3:-}"
+    local task_title task_id task_description
+    local go_tdd_skill prefactoring_skill go_cli_ddd_skill commit_skill
+
+    task_title=$(echo "$task_json" | jq -r '.title // "unknown"')
+    task_id=$(echo "$task_json" | jq -r '.id // "unknown"')
+    task_description=$(echo "$task_json" | jq -r '.description // ""')
+
+    go_tdd_skill=$(load_skill_content "go-tdd")
+    prefactoring_skill=$(load_skill_content "prefactoring")
+    go_cli_ddd_skill=$(load_skill_content "go-cli-ddd")
+    commit_skill=$(load_skill_content "commit")
+
+    cat <<PROMPT_EOF
+## Non-Interactive Mode
+You are running in ralph's automation loop (non-interactive).
+You CANNOT ask questions or wait for user input.
+Communicate status ONLY through beads task management.
+
+## TDD Step: GREEN (Cycle $cycle of $TDD_MAX_CYCLES)
+
+### Task Details
+Title: $task_title
+ID: $task_id
+
+Description:
+$task_description
+
+### Your Mission: Write MINIMUM Code to Pass Tests
+
+Make all failing tests pass with the simplest possible implementation.
+
+**Rules:**
+1. Write ONLY enough production code to make tests pass
+2. Do NOT add features beyond what tests require
+3. Do NOT refactor (that's the next step)
+4. Do NOT modify test files
+5. All tests must pass: \`go test ./...\`
+6. Handle all errors explicitly (no \`_\` for errors)
+7. Follow Go conventions and project structure
+
+### Bead Management
+- Comment progress: \`npx bd comment $task_id "GREEN: implemented ..."\`
+- Do NOT close the bead (REVIEW step decides completion)
+
+### Commit Your Work (REQUIRED)
+After making tests pass, you MUST commit:
+1. Stage all changed files (specific files, never \`git add -A\`)
+2. Create a conventional commit
+3. Pre-commit hooks MUST pass (gofmt, go vet, staticcheck, coverage)
+4. If hooks fail, fix issues and retry until commit succeeds
+PROMPT_EOF
+
+    # Add retry context if retrying after failed verification
+    if [[ -n "$retry_context" ]]; then
+        cat <<PROMPT_EOF
+
+### Retry Context (Previous Attempt Failed Verification)
+The previous GREEN attempt failed verification. Tests are still failing.
+Fix the implementation to make ALL tests pass.
+
+Previous test output:
+$retry_context
+PROMPT_EOF
+    fi
+
+    cat <<PROMPT_EOF
+
+### Go TDD Reference
+$go_tdd_skill
+
+### Prefactoring Reference
+$prefactoring_skill
+
+### Go CLI DDD Reference
+$go_cli_ddd_skill
+
+### Commit Reference
+$commit_skill
+PROMPT_EOF
+}
+
+# Generate REFACTOR step prompt: improve code without changing behavior
+# Arguments: task_json, cycle_number, [retry_context]
+generate_refactor_prompt() {
+    local task_json="$1"
+    local cycle="$2"
+    local retry_context="${3:-}"
+    local task_title task_id task_description
+    local go_tdd_skill refactoring_skill
+
+    task_title=$(echo "$task_json" | jq -r '.title // "unknown"')
+    task_id=$(echo "$task_json" | jq -r '.id // "unknown"')
+    task_description=$(echo "$task_json" | jq -r '.description // ""')
+
+    go_tdd_skill=$(load_skill_content "go-tdd")
+    refactoring_skill=$(load_skill_content "refactoring")
+
+    cat <<PROMPT_EOF
+## Non-Interactive Mode
+You are running in ralph's automation loop (non-interactive).
+You CANNOT ask questions or wait for user input.
+Communicate status ONLY through beads task management.
+
+## TDD Step: REFACTOR (Cycle $cycle of $TDD_MAX_CYCLES)
+
+### Task Details
+Title: $task_title
+ID: $task_id
+
+Description:
+$task_description
+
+### Your Mission: Improve Code Quality Without Changing Behavior
+
+All tests are passing. Improve the code while keeping them green.
+
+**Rules:**
+1. Do NOT change behavior (tests must stay green)
+2. Improve naming, structure, readability
+3. Eliminate duplication
+4. Apply SOLID principles where appropriate
+5. Run tests after each change: \`go test ./...\`
+6. If no improvements needed, do nothing (that's fine)
+
+### Bead Management
+- Comment progress: \`npx bd comment $task_id "REFACTOR: improved ..."\`
+- Do NOT close the bead
+
+### Commit If Changes Made
+If you made changes:
+1. Stage all changed files (specific files, never \`git add -A\`)
+2. Create a conventional commit (type: refactor)
+3. Pre-commit hooks MUST pass
+4. If hooks fail, fix issues and retry
+
+If no changes needed, skip commit entirely.
+PROMPT_EOF
+
+    # Add retry context if retrying after failed verification
+    if [[ -n "$retry_context" ]]; then
+        cat <<PROMPT_EOF
+
+### Retry Context (Previous Attempt Failed Verification)
+The previous REFACTOR attempt broke tests. The changes were reverted.
+Be more careful this time - make smaller changes and test after each one.
+
+Previous test output:
+$retry_context
+PROMPT_EOF
+    fi
+
+    cat <<PROMPT_EOF
+
+### Go TDD Reference
+$go_tdd_skill
+
+### Refactoring Reference
+$refactoring_skill
+PROMPT_EOF
+}
+
+# Generate REVIEW step prompt: evaluate completeness and test quality
+# Arguments: task_json, cycle_number
+generate_review_prompt() {
+    local task_json="$1"
+    local cycle="$2"
+    local task_title task_id task_description
+
+    task_title=$(echo "$task_json" | jq -r '.title // "unknown"')
+    task_id=$(echo "$task_json" | jq -r '.id // "unknown"')
+    task_description=$(echo "$task_json" | jq -r '.description // ""')
+
+    cat <<PROMPT_EOF
+## Non-Interactive Mode
+You are running in ralph's automation loop (non-interactive).
+You CANNOT ask questions or wait for user input.
+
+## TDD Step: REVIEW (Cycle $cycle of $TDD_MAX_CYCLES)
+
+### Task Details
+Title: $task_title
+ID: $task_id
+
+Description:
+$task_description
+
+### Your Mission: Evaluate Completeness and Test Quality
+
+Review the current implementation and tests against the task requirements.
+
+**Evaluate:**
+1. **Functional completeness**: Does the implementation satisfy ALL requirements in the task description?
+2. **Test quality**: Are there meaningful assertions? Edge cases? Error paths?
+3. **Coverage**: Are all non-Impl functions tested? (100% coverage required)
+
+### Output: Write JSON to $REVIEW_OUTPUT_FILE
+
+You MUST write a JSON file to \`$REVIEW_OUTPUT_FILE\` with this exact schema:
+
+\`\`\`json
+{
+  "complete": true,
+  "reason": "Brief explanation of verdict",
+  "remaining_items": [],
+  "test_gaps": []
+}
+\`\`\`
+
+**Fields:**
+- \`complete\`: \`true\` if task is fully implemented and well-tested, \`false\` otherwise
+- \`reason\`: One-sentence explanation of your verdict
+- \`remaining_items\`: Array of strings describing unimplemented requirements (empty if complete)
+- \`test_gaps\`: Array of strings describing missing test coverage (empty if complete)
+
+**Examples:**
+
+Complete:
+\`\`\`json
+{
+  "complete": true,
+  "reason": "All requirements implemented with comprehensive test coverage",
+  "remaining_items": [],
+  "test_gaps": []
+}
+\`\`\`
+
+Incomplete:
+\`\`\`json
+{
+  "complete": false,
+  "reason": "Missing error handling for invalid input",
+  "remaining_items": ["validate empty string input", "handle file not found error"],
+  "test_gaps": ["no test for empty input", "no test for concurrent access"]
+}
+\`\`\`
+
+### Critical Rules
+1. Write the JSON file using: echo '...' > $REVIEW_OUTPUT_FILE
+2. The file MUST be valid JSON (parseable by jq)
+3. Do NOT commit anything
+4. Do NOT close or modify the bead
+5. Be honest - if something is missing, say so
+6. Consider: would you be confident shipping this?
+PROMPT_EOF
+}
+
+##############################################################################
+# TDD cycle orchestration
+##############################################################################
+
+# Execute one TDD step with up to TDD_STEP_RETRIES semantic retries.
+# Arguments: step_name, task_json, cycle_number, [remaining_items_for_red]
+# Returns 0 on success, 1 on failure after all retries exhausted.
+execute_tdd_step() {
+    local step="$1"
+    local task_json="$2"
+    local cycle="$3"
+    local remaining_items="${4:-}"
+    local attempt=0
+    local prompt retry_context=""
+    local test_output
+
+    log INFO "Executing TDD step: $step (cycle $cycle)"
+
+    while (( attempt < TDD_STEP_RETRIES )); do
+        attempt=$((attempt + 1))
+        log DEBUG "$step attempt $attempt/$TDD_STEP_RETRIES"
+
+        # Generate prompt based on step
+        case "$step" in
+            "$STEP_RED")
+                prompt=$(generate_red_prompt "$task_json" "$cycle" "$remaining_items" "$retry_context")
+                ;;
+            "$STEP_GREEN")
+                prompt=$(generate_green_prompt "$task_json" "$cycle" "$retry_context")
+                ;;
+            "$STEP_REFACTOR")
+                prompt=$(generate_refactor_prompt "$task_json" "$cycle" "$retry_context")
+                ;;
+            "$STEP_REVIEW")
+                prompt=$(generate_review_prompt "$task_json" "$cycle")
+                ;;
+            *)
+                log ERROR "Unknown TDD step: $step"
+                return 1
+                ;;
+        esac
+
+        if [[ "$DRY_RUN" == "true" ]]; then
+            log INFO "DRY RUN: Would invoke Claude for $step step"
+            log_block "Dry Run $step Prompt" "$prompt"
+            echo "--- $step PROMPT (cycle $cycle) ---"
+            echo "$prompt"
+            echo "--- END $step PROMPT ---"
+            return 0
+        fi
+
+        # Invoke Claude (handles transient API failures internally)
+        if ! invoke_claude_with_retry "$prompt"; then
+            log ERROR "$step: Claude invocation failed after API retries"
+            return 1
+        fi
+
+        # REVIEW step: no test verification, uses JSON output instead
+        if [[ "$step" == "$STEP_REVIEW" ]]; then
+            log INFO "REVIEW step complete (verification via JSON output)"
+            return 0
+        fi
+
+        # REFACTOR: check if changes were made
+        if [[ "$step" == "$STEP_REFACTOR" ]]; then
+            if ! check_for_changes; then
+                log INFO "REFACTOR made no changes - skipping verification"
+                return 0
+            fi
+        fi
+
+        # Run verification (spot-check)
+        if run_verification "$step"; then
+            if (( attempt > 1 )); then
+                log INFO "$step succeeded after $attempt attempts"
+            fi
+            return 0
+        fi
+
+        # Verification failed - capture test output for retry context
+        if (( attempt < TDD_STEP_RETRIES )); then
+            test_output=$(go test ./... 2>&1) || true
+            retry_context="$test_output"
+
+            # REFACTOR failure: revert changes to preserve GREEN commit
+            if [[ "$step" == "$STEP_REFACTOR" ]]; then
+                log WARN "REFACTOR broke tests - reverting changes"
+                git checkout . 2>/dev/null || true
+            fi
+
+            log WARN "$step verification failed (attempt $attempt/$TDD_STEP_RETRIES), retrying in ${TDD_STEP_RETRY_DELAY}s..."
+            sleep "$TDD_STEP_RETRY_DELAY"
+        fi
+    done
+
+    log ERROR "$step failed after $TDD_STEP_RETRIES attempts"
+
+    # Final REFACTOR failure: revert to preserve GREEN state
+    if [[ "$step" == "$STEP_REFACTOR" ]]; then
+        log WARN "REFACTOR exhausted retries - reverting to preserve GREEN state"
+        git checkout . 2>/dev/null || true
+        # Return success since GREEN state is preserved
+        return 0
+    fi
+
+    return 1
+}
+
+# Parse .ralph-review.json and return results
+# Sets global variables: REVIEW_COMPLETE, REVIEW_REASON, REVIEW_REMAINING
+parse_review_result() {
+    local review_file="$REVIEW_OUTPUT_FILE"
+
+    # Reset globals
+    REVIEW_COMPLETE="false"
+    REVIEW_REASON=""
+    REVIEW_REMAINING=""
+
+    if [[ ! -f "$review_file" ]]; then
+        log WARN "Review output file not found: $review_file"
+        return 1
+    fi
+
+    # Validate JSON structure
+    if ! jq empty "$review_file" 2>/dev/null; then
+        log WARN "Review output is not valid JSON"
+        log_block "Invalid Review JSON" "$(cat "$review_file")"
+        return 1
+    fi
+
+    # Extract fields
+    REVIEW_COMPLETE=$(jq -r '.complete // false' "$review_file")
+    REVIEW_REASON=$(jq -r '.reason // "no reason provided"' "$review_file")
+
+    # Combine remaining_items and test_gaps into a single list for next RED
+    local remaining_items test_gaps
+    remaining_items=$(jq -r '.remaining_items // [] | .[]' "$review_file" 2>/dev/null)
+    test_gaps=$(jq -r '.test_gaps // [] | .[]' "$review_file" 2>/dev/null)
+
+    REVIEW_REMAINING=""
+    if [[ -n "$remaining_items" ]]; then
+        REVIEW_REMAINING="Remaining items:
+$(echo "$remaining_items" | sed 's/^/- /')"
+    fi
+    if [[ -n "$test_gaps" ]]; then
+        if [[ -n "$REVIEW_REMAINING" ]]; then
+            REVIEW_REMAINING="$REVIEW_REMAINING
+
+"
+        fi
+        REVIEW_REMAINING="${REVIEW_REMAINING}Test gaps:
+$(echo "$test_gaps" | sed 's/^/- /')"
+    fi
+
+    log_block "Review Result" "Complete: $REVIEW_COMPLETE
+Reason: $REVIEW_REASON
+Remaining: $REVIEW_REMAINING"
+
+    return 0
+}
+
+# Execute full TDD cycle (R-G-R-Review) for one bead task.
+# Arguments: task_json, epic_id
+# Returns 0 on success (task complete), 1 on failure (BLOCKED)
+execute_tdd_cycle() {
+    local task_json="$1"
+    local epic_id="$2"
+    local task_id task_title
+    local cycle=0
+    local remaining_items=""
+    local head_before head_after
+
+    task_id=$(echo "$task_json" | jq -r '.id // "unknown"')
+    task_title=$(echo "$task_json" | jq -r '.title // "unknown"')
+
+    log_section "TDD CYCLE for $task_id: $task_title"
+
+    while (( cycle < TDD_MAX_CYCLES )); do
+        cycle=$((cycle + 1))
+        log INFO "=== TDD Cycle $cycle/$TDD_MAX_CYCLES for $task_id ==="
+
+        # DRY RUN: generate all four prompts and return
+        if [[ "$DRY_RUN" == "true" ]]; then
+            execute_tdd_step "$STEP_RED" "$task_json" "$cycle" "$remaining_items"
+            execute_tdd_step "$STEP_GREEN" "$task_json" "$cycle"
+            execute_tdd_step "$STEP_REFACTOR" "$task_json" "$cycle"
+            execute_tdd_step "$STEP_REVIEW" "$task_json" "$cycle"
+            return 0
+        fi
+
+        # Check baseline tests before RED
+        if ! check_baseline_tests; then
+            log ERROR "Baseline tests failing - marking task BLOCKED"
+            npx bd comment "$task_id" "BLOCKED: baseline tests failing before RED step" 2>/dev/null || true
+            return 1
+        fi
+
+        # --- RED: Write failing tests ---
+        if ! execute_tdd_step "$STEP_RED" "$task_json" "$cycle" "$remaining_items"; then
+            log ERROR "RED step failed for $task_id"
+            npx bd comment "$task_id" "BLOCKED: RED step failed after $TDD_STEP_RETRIES retries" 2>/dev/null || true
+            return 1
+        fi
+
+        # --- GREEN: Write minimum code to pass ---
+        head_before=$(git rev-parse HEAD 2>/dev/null)
+
+        if ! execute_tdd_step "$STEP_GREEN" "$task_json" "$cycle"; then
+            log ERROR "GREEN step failed for $task_id"
+            npx bd comment "$task_id" "BLOCKED: GREEN step failed after $TDD_STEP_RETRIES retries" 2>/dev/null || true
+            return 1
+        fi
+
+        # Check if GREEN committed (Claude should have committed)
+        head_after=$(git rev-parse HEAD 2>/dev/null)
+        if [[ "$head_before" == "$head_after" ]]; then
+            log WARN "GREEN step did not commit - creating fallback commit"
+            git add -A 2>/dev/null || true
+            git commit -m "feat: implement $task_title (GREEN step - fallback commit)
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>" 2>/dev/null || {
+                log WARN "Fallback commit failed (possibly no changes)"
+            }
+        fi
+
+        # --- REFACTOR: Improve code quality ---
+        if ! execute_tdd_step "$STEP_REFACTOR" "$task_json" "$cycle"; then
+            log WARN "REFACTOR step failed - continuing with GREEN state"
+            # Non-fatal: REFACTOR failure preserves GREEN commit
+        fi
+
+        # --- REVIEW: Evaluate completeness ---
+        # Clean up previous review file
+        rm -f "$REVIEW_OUTPUT_FILE"
+
+        if ! execute_tdd_step "$STEP_REVIEW" "$task_json" "$cycle"; then
+            log WARN "REVIEW step failed - treating as incomplete"
+            # Continue to next cycle
+            remaining_items="(REVIEW step failed - please evaluate and implement any missing requirements)"
+            continue
+        fi
+
+        # Parse review result
+        if ! parse_review_result; then
+            log WARN "Failed to parse review result - treating as incomplete"
+            remaining_items="(Review JSON was invalid - please evaluate and implement any missing requirements)"
+            continue
+        fi
+
+        # Check if complete
+        if [[ "$REVIEW_COMPLETE" == "true" ]]; then
+            log INFO "REVIEW says task is COMPLETE: $REVIEW_REASON"
+
+            # Close the bead
+            npx bd close "$task_id" 2>/dev/null || {
+                log WARN "Failed to close bead $task_id"
+            }
+
+            # Final commit to capture .beads/ state
+            git add -A 2>/dev/null || true
+            git commit -m "chore: close bead $task_id
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>" 2>/dev/null || {
+                log DEBUG "No additional changes to commit after bead close"
+            }
+
+            # Clean up review file
+            rm -f "$REVIEW_OUTPUT_FILE"
+
+            return 0
+        fi
+
+        # Incomplete - feed remaining items to next cycle's RED
+        remaining_items="$REVIEW_REMAINING"
+        log INFO "Cycle $cycle incomplete: $REVIEW_REASON"
+
+        # Clean up review file between cycles
+        rm -f "$REVIEW_OUTPUT_FILE"
+    done
+
+    # Exhausted all cycles
+    log ERROR "Task $task_id exhausted $TDD_MAX_CYCLES TDD cycles - marking BLOCKED"
+    npx bd comment "$task_id" "BLOCKED: exhausted $TDD_MAX_CYCLES TDD cycles without completion. Last review: $REVIEW_REASON" 2>/dev/null || true
+
+    return 1
+}
+
+##############################################################################
 # Claude CLI invocation
 ##############################################################################
 
@@ -1077,7 +1816,6 @@ run_loop() {
     local epic_id="$1"
     local iteration=0
     local next_task task_id task_title task_description task_type
-    local focused_prompt
     local is_resuming=false
     local task_source
 
@@ -1165,30 +1903,23 @@ Status: $(if [[ "$is_resuming" == "true" ]]; then echo "RESUMING IN-PROGRESS"; e
 Description:
 $task_description"
 
-        # Generate focused prompt
-        log DEBUG "Generating focused prompt..."
-        focused_prompt=$(generate_focused_prompt "$next_task")
-
+        # In dry-run mode, show all four TDD prompts for this task and exit
         if [[ "$DRY_RUN" == "true" ]]; then
-            log INFO "DRY RUN: Would invoke Claude with prompt"
-            log_block "Dry Run Prompt" "$focused_prompt"
-            echo "---"
-            echo "$focused_prompt"
-            echo "---"
+            execute_tdd_cycle "$next_task" "$epic_id"
             return "$EXIT_SUCCESS"
         fi
 
-        # Invoke Claude CLI with retry logic
-        if invoke_claude_with_retry "$focused_prompt"; then
-            log INFO "Task processing completed successfully"
+        # Execute TDD cycle (R-G-R-Review) for this task
+        if execute_tdd_cycle "$next_task" "$epic_id"; then
+            log INFO "Task $task_id completed via TDD cycle"
 
             # Auto-close parent container tasks if all children are now completed.
             # Walks up from the processed task, closing each ancestor whose
             # children are all closed. This unblocks dependents of the parent.
             auto_close_completed_parents "$task_id" "$epic_id"
         else
-            log ERROR "Task processing failed after $MAX_RETRIES retries"
-            return "$EXIT_FAILURE"
+            log WARN "Task $task_id marked BLOCKED - continuing to next task"
+            # Continue to next task instead of returning EXIT_FAILURE
         fi
     done
 
