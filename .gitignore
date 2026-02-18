@@ -26,3 +26,7 @@ vendor/
 
 # Lefthook
 lefthook-local.yml
+
+# Ralph automation
+.ralph.lock
+.ralph.log
