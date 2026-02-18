@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(wc:*)",
+      "Skill(commit)",
+      "Bash(git commit:*)",
+      "Bash(brew list:*)",
+      "Bash(./bin/lmk:*)"
+    ]
+  }
+}
