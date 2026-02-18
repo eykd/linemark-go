@@ -16,20 +16,60 @@ Identify inconsistencies, duplications, ambiguities, and underspecified items ac
 
 **Additionally**, this command queries beads for task status and progress metrics.
 
+## Relationship with sp:04-red-team
+
+sp:04-red-team and sp:06-analyze serve complementary purposes:
+
+- **sp:04-red-team** (Design Phase): Adversarial review BEFORE task generation
+  - Enhances plan.md with security, edge cases, performance, accessibility
+  - Prevents problems by strengthening design
+  - Thinks like attacker/critic/tester
+  - Runs AFTER sp:03-plan, BEFORE sp:05-tasks
+
+- **sp:06-analyze** (Validation Phase): Consistency check AFTER task generation
+  - Auto-fixes terminology, coverage gaps, orphan tasks, duplicates
+  - Validates requirements → task coverage
+  - Enforces constitution principles
+  - Creates remediation tasks for complex issues only
+  - Provides beads status reporting
+  - Runs AFTER sp:05-tasks, BEFORE sp:07-implement
+
+Both phases improve artifacts directly, minimizing manual triaging. Red team makes analyze's job easier by improving input quality.
+
 ## Operating Constraints
 
-**WRITE REMEDIATION TASKS**: Do **not** edit source files directly in this command, but you **MUST** create remediation beads tasks under the current epic for any issues you find. Do not require explicit user approval to add beads remediation tasks.
+**AUTO-REMEDIATION FIRST**: This command **MUST** automatically fix consistency issues where possible by editing spec.md, plan.md, and beads tasks directly. Only create remediation beads tasks for complex issues requiring judgment. Do not require explicit user approval for auto-fixes.
 
-Task creation rules:
+Auto-fix classification:
 
-- For each finding, first search existing beads tasks under the epic (open + in_progress) to avoid duplicates.
+**Safe Auto-Fixes (Apply Immediately):**
+
+- Terminology consistency: Search/replace to standardize terminology across spec.md and plan.md
+- Coverage gaps: Auto-generate beads tasks for uncovered requirements
+- Orphan task mapping: Add `**Spec**:` references to task descriptions
+- Simple duplicates: Comment out near-identical requirements (>90% text similarity)
+
+**Conditional Fixes (Ask First):**
+
+- Ambiguous terms: Offer to add TODO markers or propose default metrics
+- Missing acceptance criteria: Offer to generate criteria from requirement text
+
+**Manual Remediation Tasks (Complex Issues):**
+
+- Constitution violations: Require architectural changes or spec rewrite
+- Conflicting requirements: Require user decision on which to keep
+- Major underspecification: Require domain knowledge
+
+Task creation rules (for manual remediation only):
+
+- For each manual finding, first search existing beads tasks under the epic (open + in_progress) to avoid duplicates.
 - Only create a new task if no existing task clearly covers the same issue.
 - Each created task MUST:
   - Be parented to the current epic
   - Include a concise title starting with `Remediate:`
   - Include a description that cites: impacted artifact(s), severity, and a concrete fix suggestion
   - Include acceptance criteria
-- Assign priority by severity (CRITICAL → p1, MAJOR → p2, MINOR → p3).
+- Assign priority by severity (CRITICAL → p1, HIGH → p2, MEDIUM → p3).
 
 You MUST still output a structured analysis report, and include a section listing the remediation tasks you created (IDs + titles).
 
@@ -130,56 +170,153 @@ Focus on high-signal findings. Limit to 50 findings total; aggregate remainder i
 
 #### A. Duplication Detection
 
-- Identify near-duplicate requirements
-- Mark lower-quality phrasing for consolidation
+- Identify near-duplicate requirements (>90% text similarity)
+- **Auto-fix**: Comment out duplicate in spec.md with note: `<!-- Duplicate of REQ-X; removed by sp:06-analyze -->`
 
 #### B. Ambiguity Detection
 
 - Flag vague adjectives (fast, scalable, secure, intuitive, robust) lacking measurable criteria
 - Flag unresolved placeholders (TODO, TKTK, ???, `<placeholder>`, etc.)
+- **Conditional fix**: Offer to add TODO markers or propose default metrics (ask user first)
 
 #### C. Underspecification
 
 - Requirements with verbs but missing object or measurable outcome
 - User stories missing acceptance criteria alignment
 - Tasks referencing files or components not defined in spec/plan
+- **Conditional fix**: Offer to generate acceptance criteria from requirement text (ask user first)
+- **Manual task**: Create remediation task for major underspecification requiring domain knowledge
 
 #### D. Constitution Alignment
 
 - Any requirement or plan element conflicting with a MUST principle
 - Missing mandated sections or quality gates from constitution
+- **Manual task**: Create CRITICAL remediation task (requires architectural changes)
 
 #### E. Coverage Gaps
 
 - Requirements with zero associated tasks
 - Tasks with no mapped requirement/story
 - Non-functional requirements not reflected in tasks (e.g., performance, security)
+- **Auto-fix for uncovered requirements**: Create beads task with format:
+  ```
+  Title: Implement [requirement title]
+  Description:
+  **Spec**: [requirement reference]
+  **Context**: Auto-generated from sp:06-analyze coverage analysis
+  **Acceptance**: [extract from requirement acceptance criteria]
+  ```
+- **Auto-fix for orphan tasks**: Add `**Spec**: [best-match-requirement]` to task description
 
 #### F. Inconsistency
 
-- Terminology drift (same concept named differently across files)
+- **Terminology drift**: Use `/glossary` skill to:
+  - Check if terms in spec.md, plan.md, and task descriptions match glossary
+  - Detect use of synonyms (e.g., "user profile" vs. "user account")
+  - **Auto-fix**: Search/replace to standardize to canonical glossary terms
+  - Flag prominent names (entities, use cases, value objects) that don't match glossary
+  - Report any terms used in domain/application layers not in glossary
 - Data entities referenced in plan but absent in spec (or vice versa)
 - Task ordering contradictions (e.g., integration tasks before foundational setup tasks without dependency note)
 - Conflicting requirements (e.g., one requires Next.js while other specifies Vue)
+- **Auto-fix for terminology**: Search/replace to standardize terminology across spec.md and plan.md using glossary as authority
+- **Manual task**: Create HIGH remediation task for conflicting requirements (requires user decision)
 
-### 6. Severity Assignment
+### 6. Apply Auto-Fixes
 
-Use this heuristic to prioritize findings:
+Before creating manual remediation tasks, apply auto-fixes where safe:
 
-- **CRITICAL**: Violates constitution MUST, missing core spec artifact, or requirement with zero coverage that blocks baseline functionality
-- **HIGH**: Duplicate or conflicting requirement, ambiguous security/performance attribute, untestable acceptance criterion
-- **MEDIUM**: Terminology drift, missing non-functional task coverage, underspecified edge case
-- **LOW**: Style/wording improvements, minor redundancy not affecting execution order
+**Safe Auto-Fixes (Apply Immediately):**
 
-### 7. Produce Compact Analysis Report
+1. **Terminology Consistency**: Search/replace to standardize terminology across spec.md and plan.md
+   - Example: "user profile" → "user account" (5 occurrences)
+   - Log all changes for reporting
+
+2. **Coverage Gaps - Create Missing Tasks**:
+   - For requirements with zero task coverage, create beads task:
+     ```bash
+     npx bd create --parent <epic-id> --description "**Spec**: [requirement reference]\n\n**Context**: Auto-generated from sp:06-analyze coverage analysis\n\n**Acceptance**: [extract from requirement acceptance criteria]" "Implement [requirement title]"
+     ```
+
+3. **Orphan Task Mapping**:
+   - Add `**Spec**: [best-match-requirement]` to task descriptions using `npx bd edit`
+   - Log mappings for reporting
+
+4. **Simple Duplicates**:
+   - Comment out duplicate requirements in spec.md with: `<!-- Duplicate of REQ-X; removed by sp:06-analyze -->`
+   - Keep clearer/more specific version
+
+**Conditional Fixes (Ask User First):**
+
+Use AskUserQuestion tool for ambiguous fixes:
+
+- "Found ambiguous term 'fast'. Fix: (A) Add TODO marker or (B) Propose default 200ms threshold?"
+- "Requirement FR-3 lacks acceptance criteria. Auto-generate from requirement text?"
+
+**Manual Remediation Tasks (Complex Issues):**
+
+Only create tasks for issues that cannot be auto-fixed:
+
+- Constitution violations (CRITICAL)
+- Conflicting requirements (HIGH)
+- Major underspecification (MEDIUM)
+
+### 7. Severity Assignment
+
+Use this heuristic for manual remediation tasks only:
+
+- **CRITICAL**: Violates constitution MUST, missing core spec artifact
+- **HIGH**: Conflicting requirements requiring user decision
+- **MEDIUM**: Major underspecification requiring domain knowledge
+
+### 8. Produce Compact Analysis Report
 
 Output a Markdown report (no file writes) with the following structure:
 
-## Specification Analysis Report
+## Artifact Analysis Complete
 
-| ID  | Category    | Severity | Location(s)      | Summary                      | Recommendation                       |
-| --- | ----------- | -------- | ---------------- | ---------------------------- | ------------------------------------ |
-| A1  | Duplication | HIGH     | spec.md:L120-134 | Two similar requirements ... | Merge phrasing; keep clearer version |
+### Auto-Fixes Applied (N fixes)
+
+**Terminology Standardization:**
+
+- Standardized "user profile" → "user account" (5 occurrences in spec.md, 3 in plan.md)
+
+**Coverage Gaps Filled:**
+
+- Created task bd-abc123: "Implement user profile export" (uncovered requirement FR-7)
+- Created task bd-abc124: "Add rate limiting to API" (uncovered NFR-2)
+
+**Orphan Tasks Mapped:**
+
+- Mapped task bd-xyz789 to requirement FR-3
+
+**Duplicates Removed:**
+
+- Commented out duplicate requirement at spec.md:L145 (duplicate of FR-4)
+
+### Conditional Fixes (User Approved)
+
+List any fixes that required user approval and were applied.
+
+### Manual Remediation Tasks Created (N tasks)
+
+**Constitution Violations (CRITICAL):**
+
+- Task bd-def456: "Resolve constitution violation in authentication approach"
+
+**Conflicting Requirements (HIGH):**
+
+- Task bd-def457: "Resolve conflict between FR-10 and FR-15"
+
+**Underspecification (MEDIUM):**
+
+- Task bd-def458: "Clarify acceptance criteria for performance requirement"
+
+### Analysis Summary
+
+| ID  | Category    | Severity | Location(s)      | Summary                      | Resolution                          |
+| --- | ----------- | -------- | ---------------- | ---------------------------- | ----------------------------------- |
+| A1  | Duplication | HIGH     | spec.md:L120-134 | Two similar requirements ... | AUTO-FIXED: Commented out duplicate |
 
 (Add one row per finding; generate stable IDs prefixed by category initial.)
 
@@ -188,11 +325,11 @@ Output a Markdown report (no file writes) with the following structure:
 | Requirement Key | Has Task? | Task IDs | Notes |
 | --------------- | --------- | -------- | ----- |
 
-**Constitution Alignment Issues:** (if any)
+**Constitution Alignment Issues:** (if any - only manual tasks listed)
 
-**Unmapped Tasks:** (if any)
+**Unmapped Tasks:** (if any - only items not auto-fixed)
 
-### 8. Beads Task Status Report
+### 9. Beads Task Status Report
 
 Include a section showing beads task progress:
 
@@ -230,18 +367,15 @@ Include a section showing beads task progress:
 - Critical Issues Count
 - **Beads Completion %** (closed / total tasks)
 
-### 9. Provide Next Actions
+### 10. Provide Next Actions
 
 At end of report, output a concise Next Actions block:
 
-- If CRITICAL issues exist: Recommend resolving before `/sp:07-implement`
-- If only LOW/MEDIUM: User may proceed, but provide improvement suggestions
-- Provide explicit command suggestions: e.g., "Run /sp:01-specify with refinement", "Run /sp:03-plan to adjust architecture", "Manually edit tasks.md to add coverage for 'performance-metrics'"
+- If CRITICAL manual tasks exist: Recommend resolving before `/sp:07-implement`
+- If only auto-fixes applied: User may proceed to `/sp:07-implement`
+- If conditional fixes were skipped: Note which issues remain unresolved
 - **If tasks are ready in beads**: Suggest running `/sp:07-implement` to start work
-
-### 10. Offer Remediation
-
-Ask the user: "Would you like me to suggest concrete remediation edits for the top N issues?" (Do NOT apply them automatically.)
+- **Review auto-fixes**: Suggest reviewing edited files (spec.md, plan.md) before proceeding
 
 ## Operating Principles
 
@@ -254,11 +388,14 @@ Ask the user: "Would you like me to suggest concrete remediation edits for the t
 
 ### Analysis Guidelines
 
-- **NEVER modify files or beads tasks** (this is read-only analysis)
+- **Auto-fix safe issues**: Apply terminology standardization, coverage gaps, orphan mapping, and duplicate removal automatically
+- **Ask before conditional fixes**: Use AskUserQuestion for ambiguous fixes where user judgment is needed
+- **Create tasks for complex issues**: Only create manual remediation tasks for constitution violations, conflicting requirements, and major underspecification
 - **NEVER hallucinate missing sections** (if absent, report them accurately)
-- **Prioritize constitution violations** (these are always CRITICAL)
+- **Prioritize constitution violations** (these are always CRITICAL manual tasks)
 - **Use examples over exhaustive rules** (cite specific instances, not generic patterns)
 - **Report zero issues gracefully** (emit success report with coverage statistics)
+- **Log all changes**: Track every auto-fix applied for the final report
 
 ## Beads Commands Reference
 

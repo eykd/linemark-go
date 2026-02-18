@@ -83,18 +83,12 @@ You **MUST** consider the user input before proceeding (if not empty).
 
    b. **Execute the task implementation**:
 
-   **For TypeScript code changes** - Apply strict red-green-refactor TDD:
-   - **RED**: Write a failing test FIRST (create `.spec.ts` file if needed)
+   **For code changes** - Apply strict red-green-refactor TDD:
+   - **RED**: Write a failing test FIRST
    - **GREEN**: Write MINIMAL code to make the test pass
    - **REFACTOR**: Improve code while maintaining green tests
-   - Use `npx jest --watch` during development
-   - Run `npm run check` before marking task complete
-
-   **For Hugo template/content changes** (files in `hugo/` directory):
-   - Make the change to layouts/, content/, or assets/
-   - Run `cd hugo && npm test` to verify build succeeds
-   - Fix any build errors before proceeding
-   - Do NOT write Jest tests for Hugo templates
+   - Use the project's test runner during development (see CLAUDE.md)
+   - Run the project's quality gates before marking task complete (see CLAUDE.md)
 
    - Use skills referenced in task description for guidance
    - Validate the implementation works

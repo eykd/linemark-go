@@ -4,20 +4,20 @@ This directory contains the spec-kit workflow commands integrated with [beads](h
 
 ## Command Reference
 
-| Command                      | Description                      | Beads Integration                           |
-| ---------------------------- | -------------------------------- | ------------------------------------------- |
-| `/sp:00-constitution`        | Project constitution management  | None                                        |
-| `/sp:01-specify`             | Create feature specification     | Creates epic + all phase tasks              |
-| `/sp:02-clarify`             | Clarify requirements             | Closes phase task when done                 |
-| `/sp:03-plan`                | Create implementation plan       | Closes phase task when done                 |
-| `/sp:04-checklist`           | Generate checklists              | Closes phase task when done                 |
-| `/sp:05-tasks`               | Generate implementation tasks    | Creates US tasks under implement phase      |
-| `/sp:06-analyze`             | Analyze artifacts                | Queries beads status, validates consistency |
-| `/sp:07-implement`           | Execute implementation           | Closes self when all sub-tasks done         |
-| `/sp:08-security-review`     | Security review (base..HEAD)     | Creates remediation tasks in beads          |
-| `/sp:09-architecture-review` | Architecture review (base..HEAD) | Creates remediation tasks in beads          |
-| `/sp:10-code-quality-review` | Code quality review (base..HEAD) | Creates remediation tasks in beads          |
-| `/sp:next`                   | **Orchestrate workflow**         | Queries `bd ready`, invokes next skill      |
+| Command                      | Description                      | Beads Integration                                                       |
+| ---------------------------- | -------------------------------- | ----------------------------------------------------------------------- |
+| `/sp:00-constitution`        | Project constitution management  | None                                                                    |
+| `/sp:01-specify`             | Create feature specification     | Creates epic + all phase tasks                                          |
+| `/sp:02-clarify`             | Clarify requirements             | Closes phase task when done                                             |
+| `/sp:03-plan`                | Create implementation plan       | Closes phase task when done                                             |
+| `/sp:04-red-team`            | Adversarial review               | Enhances plan.md, closes phase task                                     |
+| `/sp:05-tasks`               | Generate implementation tasks    | Creates US tasks under implement phase                                  |
+| `/sp:06-analyze`             | Analyze artifacts                | Auto-fixes consistency issues, validates coverage, queries beads status |
+| `/sp:07-implement`           | Execute implementation           | Closes self when all sub-tasks done                                     |
+| `/sp:08-security-review`     | Security review (base..HEAD)     | Creates remediation tasks in beads                                      |
+| `/sp:09-architecture-review` | Architecture review (base..HEAD) | Creates remediation tasks in beads                                      |
+| `/sp:10-code-quality-review` | Code quality review (base..HEAD) | Creates remediation tasks in beads                                      |
+| `/sp:next`                   | **Orchestrate workflow**         | Queries `bd ready`, invokes next skill                                  |
 
 ## Workflow: Beads Dependency Chain
 
@@ -34,7 +34,7 @@ The entire workflow is driven by beads task dependencies. `/sp:01-specify` creat
            │         │
            ├── [sp:03-plan] Create plan  ←── depends on 02
            │         │
-           ├── [sp:04-checklist] Generate checklist  ←── depends on 03
+           ├── [sp:04-red-team] Adversarial review  ←── depends on 03
            │         │
            ├── [sp:05-tasks] Generate tasks  ←── depends on 04
            │         │
@@ -59,18 +59,17 @@ Progress: Run `/sp:next` to query `bd ready` and invoke the next phase
 
 Phase tasks use the `[sp:NN-name]` prefix for automatic skill invocation:
 
-| Phase Task                        | Skill Invoked                    |
-| --------------------------------- | -------------------------------- | ---------------------------------- |
-| `[sp:02-clarify] ...`             | `/sp:02-clarify`                 |
-| `[sp:03-plan] ...`                | `/sp:03-plan`                    |
-| `[sp:04-checklist] ...`           | `/sp:04-checklist`               |
-| `[sp:05-tasks] ...`               | `/sp:05-tasks`                   |
-| `[sp:06-analyze] ...`             | `/sp:06-analyze`                 |
-| `[sp:07-implement] ...`           | `/sp:07-implement`               |
-| `[sp:08-security-review] ...`     | `/sp:08-security-review`         |
-| `[sp:09-architecture-review] ...` | `/sp:09-architecture-review`     |
-| `[sp:10-code-quality-review] ...` | `/sp:10-code-quality-review`     |
-| `/sp:10-code-quality-review`      | Code quality review (base..HEAD) | Creates remediation tasks in beads |
+| Phase Task                        | Skill Invoked                |
+| --------------------------------- | ---------------------------- |
+| `[sp:02-clarify] ...`             | `/sp:02-clarify`             |
+| `[sp:03-plan] ...`                | `/sp:03-plan`                |
+| `[sp:04-red-team] ...`            | `/sp:04-red-team`            |
+| `[sp:05-tasks] ...`               | `/sp:05-tasks`               |
+| `[sp:06-analyze] ...`             | `/sp:06-analyze`             |
+| `[sp:07-implement] ...`           | `/sp:07-implement`           |
+| `[sp:08-security-review] ...`     | `/sp:08-security-review`     |
+| `[sp:09-architecture-review] ...` | `/sp:09-architecture-review` |
+| `[sp:10-code-quality-review] ...` | `/sp:10-code-quality-review` |
 
 ## Using /sp:next
 
@@ -114,7 +113,7 @@ These commands use beads for task management:
 # Progress through the workflow automatically
 /sp:next              # Invokes /sp:02-clarify
 /sp:next              # Invokes /sp:03-plan
-/sp:next --skip       # Skip checklist
+/sp:next              # Invokes /sp:04-red-team
 /sp:next              # Invokes /sp:05-tasks
 /sp:next              # Invokes /sp:06-analyze
 /sp:next              # Invokes /sp:07-implement
@@ -147,3 +146,80 @@ npx bd stats
 # Check workflow status
 /sp:next --status
 ```
+
+## Red Team Phase (sp:04-red-team)
+
+The red team phase performs **adversarial review** of requirements and design BEFORE implementation:
+
+**Purpose**: Strengthen the plan by thinking like an attacker/critic/tester
+
+**Process**:
+
+1. Reviews spec.md and plan.md from adversarial perspective
+2. Identifies security gaps, edge cases, performance bottlenecks, accessibility barriers
+3. **Enhances plan.md directly** with findings (no separate tasks to triage)
+4. Adds sections: Security Considerations, Edge Cases & Error Handling, Performance Considerations, Accessibility Requirements
+
+**Key Distinction**:
+
+- **sp:04-red-team**: Reviews DESIGN (spec.md + plan.md) → Enhances plan.md
+- **sp:08-security-review**: Reviews CODE (git diff) → Creates beads tasks
+
+**When It Runs**: After sp:03-plan, before sp:05-tasks (so tasks are generated from enhanced plan)
+
+**Skip If**: Feature is very simple and doesn't benefit from adversarial thinking (`/sp:next --skip`)
+
+## Compound Learning (`/compound`)
+
+The `/compound` command captures solutions to problems so future planning and review phases can reference them. Knowledge compounds over time — each feature cycle leaves the project smarter.
+
+**When to use**: After solving a tricky bug, fixing review findings, or discovering a non-obvious pattern.
+
+**What it does**:
+
+1. Identifies the problem (from user input, recent commits, or closed tasks)
+2. Analyzes the solution and root cause
+3. Auto-categorizes into one of 8 categories (cloudflare-workers, test-coverage, clean-architecture, hugo-build, type-safety, security, performance, tooling)
+4. Generates a solution document in `.specify/solutions/{category}/{slug}.md`
+5. Updates `.specify/solutions/INDEX.md`
+
+**How it feeds back**:
+
+- `/sp:03-plan` searches prior learnings before planning (Phase 0.5)
+- `/sp:04-red-team` checks for known vulnerability patterns before adversarial analysis
+- `/sp:08`, `/sp:09`, `/sp:10` cross-reference findings with prior solutions
+- Review completion reports suggest running `/compound` when remediation tasks were resolved
+
+**Key design**: Standalone command, not a numbered phase. Can be invoked at any time — mid-implementation, after review, after incidents.
+
+## Deepen Plan (`/deepen-plan`)
+
+The `/deepen-plan` command enhances the current feature plan with focused research on uncertain sections.
+
+**When to use**: After `/sp:03-plan` for complex features, before `/sp:04-red-team`.
+
+**What it does**:
+
+1. Loads plan.md and identifies sections with "NEEDS CLARIFICATION", "TBD", or vague language
+2. Searches `.specify/solutions/` for prior learnings relevant to each uncertain section
+3. Researches unknowns and expands sections with concrete implementation details
+4. Updates plan.md in place
+
+**Key design**: Idempotent — can be run multiple times. Does NOT create beads tasks or close any phase.
+
+## Code Review (Not Part of sp Workflow)
+
+The `/code-review` skill is available for iterative code review during development, but is **not part of the sp workflow**:
+
+- **`/code-review`** - Reviews source files directly (auto-discovers or specify files)
+  - Use during development for iterative feedback
+  - Creates beads tasks for findings under the current epic
+  - Runs in background with Haiku model
+
+The sp workflow includes **final review phases** that review git diffs (base..HEAD):
+
+- **`/sp:08-security-review`** - Security review after implementation
+- **`/sp:09-architecture-review`** - Architecture review after security
+- **`/sp:10-code-quality-review`** - Quality review after architecture
+
+**Key difference**: `/code-review` reviews files directly for iterative feedback, while sp:08/09/10 review all changes in the branch as final validation before merge.

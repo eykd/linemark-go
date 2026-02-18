@@ -78,16 +78,15 @@ You **MUST** consider the user input before proceeding (if not empty).
 
    **Skill Mapping Reference** - Use these skills based on task type:
 
-   | Task Pattern                                | Skills                                                         |
-   | ------------------------------------------- | -------------------------------------------------------------- |
-   | `Create.*entity`, `.*domain model`          | `/ddd-domain-modeling`, `/typescript-unit-testing`             |
-   | `Implement.*repository`, `.*D1.*`           | `/d1-repository-implementation`, `/vitest-integration-testing` |
-   | `Create.*handler`, `.*route handler`        | `/worker-request-handler`                                      |
-   | `Create.*template`, `.*HTML.*`, `.*partial` | `/htmx-alpine-templates`                                       |
-   | `Write.*test`, `.*spec.*`                   | `/typescript-unit-testing`                                     |
-   | `Setup.*`, `Configure.*`                    | `/vitest-cloudflare-config`                                    |
-   | `.*HTMX.*`, `.*interactive`                 | `/htmx-pattern-library`                                        |
-   | `.*security.*`, `.*auth.*`                  | `/org-authorization`                                           |
+   | Task Pattern                                | Skills                                          |
+   | ------------------------------------------- | ----------------------------------------------- |
+   | `Create.*entity`, `.*domain model`          | `/ddd-domain-modeling`                           |
+   | `Implement.*repository`, `.*data access`    | `/ddd-domain-modeling`                           |
+   | `Write.*test`, `.*spec.*`                   | Project test skill (see CLAUDE.md)               |
+   | `Setup.*`, `Configure.*`                    | `/prefactoring`                                  |
+   | `.*security.*`, `.*auth.*`                  | `/security-review`                               |
+
+   > **Note**: Match skills to the project's technology stack. Check available skills with `/help` and reference CLAUDE.md for project-specific testing and implementation guidance.
 
    For each user story from spec.md:
 

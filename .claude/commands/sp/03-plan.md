@@ -61,6 +61,31 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Phases
 
+### Phase 0.5: Prior Learnings Review
+
+Search `.specify/solutions/` for learnings relevant to this feature. If the directory does not exist, skip this phase silently.
+
+1. **Identify relevant categories**: Based on the feature spec, determine which solution categories are likely relevant (e.g., if the feature involves auth, search `security/`; if it involves D1 bindings, search `cloudflare-workers/`).
+
+2. **Search for matches**: Search `.specify/solutions/` for learnings matching:
+   - Category relevance to the feature's technology stack
+   - Keyword matches against terms from the spec
+   - Technology matches against planned implementation approaches
+
+3. **Extract prevention tips**: For each relevant learning found, read its `## Prevention` section.
+
+4. **Incorporate into plan**: Add applicable preventions as constraints or considerations in the relevant plan sections.
+
+5. **Document applied learnings**: Add an `## Applied Learnings` section to plan.md listing each referenced solution:
+
+```markdown
+## Applied Learnings
+
+- [{solution title}](.specify/solutions/{category}/{slug}.md) — {how it applies to this plan}
+```
+
+If no relevant solutions are found, omit the `## Applied Learnings` section.
+
 ### Phase 0: Outline & Research
 
 1. **Extract unknowns from Technical Context** above:

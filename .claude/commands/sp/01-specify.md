@@ -36,6 +36,22 @@ This command is **explicitly interactive**.
 
 After the interview is complete, proceed to (or hand off into) `/sp:03-plan`.
 
+## Glossary Terms Discovery
+
+During the interview, identify any new domain terms introduced by the user:
+
+1. **For each potential domain term** (nouns, verbs describing business concepts):
+   - Check if term exists in `docs/glossary.md`
+   - If new term: Ask clarifying question about its meaning (e.g., "I notice you're using the term 'campaign'. Can you clarify what that means in your domain?")
+   - Add to glossary with user-provided definition
+
+2. **Use `/glossary` skill to**:
+   - Validate terminology consistency in spec
+   - Identify synonyms that need consolidation
+   - Ensure all domain concepts are captured
+
+This ensures Ubiquitous Language is established during specification phase.
+
 The text the user typed after `/sp:01-specify` in the triggering message **is** the feature description. Assume you always have it available in this conversation even if `$ARGUMENTS` appears literally below. Do not ask the user to repeat it unless they provided an empty command.
 
 Given that feature description, do this:
@@ -186,21 +202,21 @@ Given that feature description, do this:
 
    npx bd create "[sp:03-plan] Create implementation plan for $FEATURE_NAME" -p 1 --parent <epic-id> \
      --description "**Spec**: specs/$BRANCH/spec.md
-   **Skills**: /prefactoring, /latent-features
+   **Skills**: /prefactoring, /latent-features, /glossary
    **Context**: Generate plan.md with technical architecture, data-model.md if needed
    **Acceptance**: All technical decisions documented, file structure defined" --json
    # Store returned ID as PLAN_ID
 
-   npx bd create "[sp:04-checklist] Generate requirements checklist for $FEATURE_NAME" -p 2 --parent <epic-id> \
+   npx bd create "[sp:04-red-team] Perform adversarial review for $FEATURE_NAME" -p 2 --parent <epic-id> \
      --description "**Spec**: specs/$BRANCH/spec.md, plan.md
    **Skills**: None
-   **Context**: Generate requirements quality checklists (unit tests for English)
-   **Acceptance**: Checklist files created in checklists/ directory" --json
-   # Store returned ID as CHECKLIST_ID
+   **Context**: Adversarial review of spec and plan; enhance plan.md with security, edge cases, performance, accessibility
+   **Acceptance**: plan.md enhanced with adversarial findings; red team review complete" --json
+   # Store returned ID as RED_TEAM_ID
 
    npx bd create "[sp:05-tasks] Generate implementation tasks for $FEATURE_NAME" -p 1 --parent <epic-id> \
      --description "**Spec**: specs/$BRANCH/spec.md, plan.md
-   **Skills**: /prefactoring
+   **Skills**: /prefactoring, /glossary
    **Context**: Create beads tasks with skill references and acceptance criteria
    **Acceptance**: All user stories have beads tasks with descriptions" --json
    # Store returned ID as TASKS_ID
@@ -245,8 +261,8 @@ Given that feature description, do this:
 
    ```bash
    npx bd dep add <PLAN_ID> <CLARIFY_ID>
-   npx bd dep add <CHECKLIST_ID> <PLAN_ID>
-   npx bd dep add <TASKS_ID> <CHECKLIST_ID>
+   npx bd dep add <RED_TEAM_ID> <PLAN_ID>
+   npx bd dep add <TASKS_ID> <RED_TEAM_ID>
    npx bd dep add <ANALYZE_ID> <TASKS_ID>
    npx bd dep add <IMPLEMENT_ID> <ANALYZE_ID>
    npx bd dep add <SECURITY_REVIEW_ID> <IMPLEMENT_ID>
@@ -261,7 +277,7 @@ Given that feature description, do this:
 
    - clarify: `<CLARIFY_ID>`
    - plan: `<PLAN_ID>`
-   - checklist: `<CHECKLIST_ID>`
+   - red-team: `<RED_TEAM_ID>`
    - tasks: `<TASKS_ID>`
    - analyze: `<ANALYZE_ID>`
    - implement: `<IMPLEMENT_ID>`
@@ -274,7 +290,7 @@ Given that feature description, do this:
    npx bd dep tree <epic-id>
    ```
 
-   Expected output shows the chain: clarify → plan → checklist → tasks → analyze → implement → review
+   Expected output shows the chain: clarify → plan → red-team → tasks → analyze → implement → security-review → architecture-review → code-quality-review
 
    e. If phase task creation fails, log the error and continue. The workflow can still function with manual skill invocation.
 

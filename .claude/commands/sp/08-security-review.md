@@ -68,6 +68,11 @@ git diff --stat <base>..HEAD
 - Skill: `/security-review`
 - Review range: `<base>..HEAD`
 - Focus: security vulnerabilities
+- **Style Requirements**:
+  - Report problems only, never praise or positive feedback
+  - Make findings scannable in 30 seconds
+  - Format: file:line, severity, one-sentence problem, concise fix
+  - Include copy-paste prompt ONLY if findings exist (3-5 lines)
 
 If the skill supports reading the git diff directly, prefer providing it the diff for `<base>..HEAD`.
 
@@ -89,9 +94,17 @@ Severity → priority mapping:
 - MAJOR → p2
 - MINOR/nits → p3
 
-7. Output a concise summary:
+7. Cross-reference with Prior Learnings:
+
+   Search `.specify/solutions/` for solutions matching current finding categories. If the directory does not exist, skip this step silently.
+   - Search `.specify/solutions/security/` and `.specify/solutions/clean-architecture/` for solutions related to current findings
+   - If an implementation repeats a previously solved pattern, note it in the remediation task description with a reference to the original solution document
+   - Example addition to task description: `\n\n**Prior Learning**: See .specify/solutions/security/{slug}.md for a previous solution to this pattern.`
+
+8. Output a concise summary:
 
 - Base branch used
 - Number of findings
 - Number of new tasks created
 - List created task IDs + titles
+- If remediation tasks were created, include: "Consider running `/compound` to document what you learned fixing these issues."

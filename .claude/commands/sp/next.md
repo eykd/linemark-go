@@ -191,7 +191,7 @@ Invoke the corresponding skill:
 
 - `[sp:02-clarify]` → `/sp:02-clarify`
 - `[sp:03-plan]` → `/sp:03-plan`
-- `[sp:04-checklist]` → `/sp:04-checklist`
+- `[sp:04-red-team]` → `/sp:04-red-team`
 - `[sp:05-tasks]` → `/sp:05-tasks`
 - `[sp:06-analyze]` → `/sp:06-analyze`
 - `[sp:07-implement]` → `/sp:07-implement`
@@ -203,7 +203,7 @@ Invoke the corresponding skill:
 | ----------------------------- | ---------------------------- |
 | `[sp:02-clarify]`             | `/sp:02-clarify`             |
 | `[sp:03-plan]`                | `/sp:03-plan`                |
-| `[sp:04-checklist]`           | `/sp:04-checklist`           |
+| `[sp:04-red-team]`            | `/sp:04-red-team`            |
 | `[sp:05-tasks]`               | `/sp:05-tasks`               |
 | `[sp:06-analyze]`             | `/sp:06-analyze`             |
 | `[sp:07-implement]`           | `/sp:07-implement`           |
