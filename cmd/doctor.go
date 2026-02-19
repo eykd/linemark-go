@@ -14,23 +14,7 @@ func NewDoctorCmd(runner CheckRunner) *cobra.Command {
 		Short:        "Diagnose and fix project issues",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := runner.Check(cmd.Context())
-			if err != nil {
-				return err
-			}
-
-			errCount, warnCount := countBySeverity(result.Findings)
-
-			if jsonOutput {
-				formatCheckJSON(cmd.OutOrStdout(), result.Findings, errCount, warnCount)
-			} else {
-				formatCheckHuman(cmd.OutOrStdout(), result.Findings, errCount, warnCount)
-			}
-
-			if len(result.Findings) > 0 {
-				return &FindingsDetectedError{Errors: errCount, Warnings: warnCount}
-			}
-			return nil
+			return runCheckAndReport(cmd, runner, jsonOutput)
 		},
 	}
 
@@ -39,4 +23,3 @@ func NewDoctorCmd(runner CheckRunner) *cobra.Command {
 
 	return cmd
 }
-
