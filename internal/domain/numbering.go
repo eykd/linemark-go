@@ -23,16 +23,11 @@ func FindGap(low, high int) (int, bool) {
 		return 0, false
 	}
 
-	// 100s tier
-	candidate := ((low / 100) + 1) * 100
-	if candidate > low && candidate < high {
-		return candidate, true
-	}
-
-	// 10s tier
-	candidate = ((low / 10) + 1) * 10
-	if candidate > low && candidate < high {
-		return candidate, true
+	for _, tier := range []int{100, 10} {
+		candidate := ((low/tier) + 1) * tier
+		if candidate > low && candidate < high {
+			return candidate, true
+		}
 	}
 
 	// 1s tier: guaranteed to succeed when high > low+1
@@ -115,24 +110,24 @@ func SiblingNumberAfter(occupied []int, target int) (int, error) {
 		successor = maxSibling + 1
 	}
 
-	result1, ok1 := FindGap(target, successor)
+	directGap, directOK := FindGap(target, successor)
 
 	// Check the next gap for a higher-tier result.
 	if successor <= maxSibling {
-		var nextNext int
+		var secondSuccessor int
 		if idx+2 < len(sorted) {
-			nextNext = sorted[idx+2]
+			secondSuccessor = sorted[idx+2]
 		} else {
-			nextNext = maxSibling + 1
+			secondSuccessor = maxSibling + 1
 		}
-		result2, ok2 := FindGap(successor, nextNext)
-		if ok2 && (!ok1 || tierOf(result2) > tierOf(result1)) {
-			return result2, nil
+		skipGap, skipOK := FindGap(successor, secondSuccessor)
+		if skipOK && (!directOK || tierOf(skipGap) > tierOf(directGap)) {
+			return skipGap, nil
 		}
 	}
 
-	if ok1 {
-		return result1, nil
+	if directOK {
+		return directGap, nil
 	}
 
 	return 0, ErrNoSlotAvailable
