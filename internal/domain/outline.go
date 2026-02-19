@@ -19,33 +19,28 @@ func BuildOutline(files []ParsedFile) (Outline, []Finding, error) {
 		return outline, nil, nil
 	}
 
-	sidToMP := make(map[string]string)
 	var findings []Finding
 
-	type nodeData struct {
+	type fileGroup struct {
 		mp    string
 		sid   string
 		files []ParsedFile
 	}
-	groups := make(map[string]*nodeData)
+	groups := make(map[string]*fileGroup)
 	var order []string
 
 	for _, f := range files {
-		if existingMP, ok := sidToMP[f.SID]; ok {
-			if existingMP != f.MP {
+		g, exists := groups[f.SID]
+		if exists {
+			if g.mp != f.MP {
 				findings = append(findings, Finding{
 					Type:     FindingDuplicateSID,
 					Severity: SeverityWarning,
-					Message:  fmt.Sprintf("SID %s at MPs %s and %s", f.SID, existingMP, f.MP),
+					Message:  fmt.Sprintf("SID %s at MPs %s and %s", f.SID, g.mp, f.MP),
 				})
 			}
 		} else {
-			sidToMP[f.SID] = f.MP
-		}
-
-		g, ok := groups[f.SID]
-		if !ok {
-			g = &nodeData{mp: f.MP, sid: f.SID}
+			g = &fileGroup{mp: f.MP, sid: f.SID}
 			groups[f.SID] = g
 			order = append(order, f.SID)
 		}
