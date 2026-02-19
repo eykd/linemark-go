@@ -416,21 +416,33 @@ func (s *OutlineService) deleteFiles(ctx context.Context, toDelete []string, toR
 
 	// Perform renames first (before deletes)
 	if s.renamer != nil {
+		var completed [][2]string
 		for oldName, newName := range toRename {
 			if err := s.renamer.RenameFile(ctx, oldName, newName); err != nil {
+				rollbackRenames(ctx, s.renamer, completed)
 				return nil, fmt.Errorf("rename %s -> %s: %w", oldName, newName, err)
 			}
+			completed = append(completed, [2]string{oldName, newName})
 		}
 	}
 
-	// Perform deletes
+	// Perform deletes, tracking completed deletions for diagnostics.
+	var deleted []string
 	for _, f := range toDelete {
 		if err := s.deleter.DeleteFile(ctx, f); err != nil {
-			return nil, fmt.Errorf("delete %s: %w", f, err)
+			return nil, fmt.Errorf("delete %s: %w (already deleted: %s)", f, err, strings.Join(deleted, ", "))
 		}
+		deleted = append(deleted, f)
 	}
 
 	return result, nil
+}
+
+// rollbackRenames reverses already-completed renames on a best-effort basis.
+func rollbackRenames(ctx context.Context, renamer FileRenamer, completed [][2]string) {
+	for i := len(completed) - 1; i >= 0; i-- {
+		_ = renamer.RenameFile(ctx, completed[i][1], completed[i][0])
+	}
 }
 
 // Add creates a new node in the outline, acquiring an advisory lock first.

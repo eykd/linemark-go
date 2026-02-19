@@ -36,6 +36,44 @@ type fakeFileRenamer struct {
 	failOnFile string
 }
 
+// countingFileRenamer fails on a specific call number (0-indexed).
+// Unlike fakeFileRenamer, this provides deterministic failure regardless of map iteration order.
+type countingFileRenamer struct {
+	renames    [][2]string
+	failOnCall int // which call (0-indexed) should fail
+	err        error
+	callCount  int
+}
+
+func (f *countingFileRenamer) RenameFile(_ context.Context, oldName, newName string) error {
+	if f.callCount == f.failOnCall {
+		f.callCount++
+		return f.err
+	}
+	f.callCount++
+	f.renames = append(f.renames, [2]string{oldName, newName})
+	return nil
+}
+
+// countingFileDeleter fails on a specific call number (0-indexed).
+// Unlike fakeFileDeleter, this provides deterministic failure regardless of slice iteration order.
+type countingFileDeleter struct {
+	deleted    []string
+	failOnCall int // which call (0-indexed) should fail
+	err        error
+	callCount  int
+}
+
+func (f *countingFileDeleter) DeleteFile(_ context.Context, filename string) error {
+	if f.callCount == f.failOnCall {
+		f.callCount++
+		return f.err
+	}
+	f.callCount++
+	f.deleted = append(f.deleted, filename)
+	return nil
+}
+
 func (f *fakeFileRenamer) RenameFile(_ context.Context, oldName, newName string) error {
 	if f.failOnFile != "" && oldName == f.failOnFile {
 		return f.err
@@ -525,5 +563,106 @@ func TestOutlineService_Delete_BySID(t *testing.T) {
 	}
 	if len(result.FilesDeleted) != 2 {
 		t.Errorf("files_deleted count = %d, want 2", len(result.FilesDeleted))
+	}
+}
+
+func TestOutlineService_Delete_Promote_RollsBackCompletedRenames(t *testing.T) {
+	// Node 100 has two children; sibling 300 leaves ample gaps for promote.
+	// The counting renamer fails on the 2nd rename call, so exactly one
+	// forward rename succeeds. The implementation should attempt to reverse
+	// the completed rename (best-effort rollback per plan.md §Partial Failure).
+	files := []string{
+		"100_SID001AABB_draft_part-one.md",
+		"100-100_SID002CCDD_draft_child-one.md",
+		"100-200_SID003EEFF_draft_child-two.md",
+		"300_SID004GGHH_draft_sibling.md",
+	}
+	reader := &fakeDirectoryReader{files: files}
+	locker := &mockLocker{}
+	deleter := &fakeFileDeleter{}
+	renamer := &countingFileRenamer{
+		failOnCall: 1, // first rename succeeds, second fails
+		err:        fmt.Errorf("disk full"),
+	}
+	svc := NewOutlineService(reader, nil, locker, nil)
+	svc.deleter = deleter
+	svc.renamer = renamer
+
+	sel, _ := domain.ParseSelector("100")
+	_, err := svc.Delete(context.Background(), sel, domain.DeleteModePromote, true)
+
+	if err == nil {
+		t.Fatal("expected error for partial rename failure")
+	}
+	if !strings.Contains(err.Error(), "disk full") {
+		t.Errorf("error should contain original cause, got: %v", err)
+	}
+
+	// Key assertion: already-completed renames should be rolled back.
+	// We expect at least 2 rename calls: 1 forward (succeeded) + 1 rollback.
+	if len(renamer.renames) < 2 {
+		t.Fatalf("expected at least 2 rename calls (1 forward + 1 rollback), got %d", len(renamer.renames))
+	}
+
+	// The last recorded rename should be the reverse of the first (rollback).
+	forward := renamer.renames[0]
+	rollback := renamer.renames[len(renamer.renames)-1]
+	if rollback[0] != forward[1] || rollback[1] != forward[0] {
+		t.Errorf("rollback rename should reverse forward rename:\n"+
+			"  forward:  %s -> %s\n"+
+			"  rollback: %s -> %s",
+			forward[0], forward[1], rollback[0], rollback[1])
+	}
+
+	// No deletes should have occurred since renames failed.
+	if len(deleter.deleted) != 0 {
+		t.Errorf("no files should be deleted when rename fails, got %d deletions", len(deleter.deleted))
+	}
+}
+
+func TestOutlineService_Delete_Recursive_PartialFailure_ReportsAlreadyDeleted(t *testing.T) {
+	// Recursive delete of node 100 with children. The counting deleter
+	// fails on the 3rd delete call, after 2 files are already deleted.
+	// The error should include diagnostic info about the already-deleted
+	// files so the user can understand the current filesystem state
+	// (plan.md §Partial Failure and Rollback).
+	files := []string{
+		"100_SID001AABB_draft_part-one.md",
+		"100_SID001AABB_notes.md",
+		"100-100_SID002CCDD_draft_chapter-one.md",
+		"100-100_SID002CCDD_notes.md",
+	}
+	reader := &fakeDirectoryReader{files: files}
+	locker := &mockLocker{}
+	deleter := &countingFileDeleter{
+		failOnCall: 2, // first two deletes succeed, third fails
+		err:        fmt.Errorf("disk I/O error"),
+	}
+	svc := NewOutlineService(reader, nil, locker, nil)
+	svc.deleter = deleter
+
+	sel, _ := domain.ParseSelector("100")
+	_, err := svc.Delete(context.Background(), sel, domain.DeleteModeRecursive, true)
+
+	if err == nil {
+		t.Fatal("expected error for partial delete failure")
+	}
+	// Error should contain the original cause.
+	if !strings.Contains(err.Error(), "disk I/O error") {
+		t.Errorf("error should contain cause, got: %v", err)
+	}
+	// Error should surface that some files were already deleted.
+	if !strings.Contains(err.Error(), "already deleted") {
+		t.Errorf("error should include already-deleted diagnostic info, got: %v", err)
+	}
+	// Verify that some files were actually deleted before the failure.
+	if len(deleter.deleted) != 2 {
+		t.Errorf("expected 2 files deleted before failure, got %d", len(deleter.deleted))
+	}
+	// The error should mention each already-deleted file for manual recovery.
+	for _, f := range deleter.deleted {
+		if !strings.Contains(err.Error(), f) {
+			t.Errorf("error should mention already-deleted file %q, got: %v", f, err)
+		}
 	}
 }
