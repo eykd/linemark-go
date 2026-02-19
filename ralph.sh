@@ -523,15 +523,16 @@ find_epic_id() {
     local feature_name="$1"
     local epics_json
 
-    epics_json=$(npx bd list --type epic --status open --json 2>/dev/null) || {
+    epics_json=$(npx bd list --type feature --status open --json 2>/dev/null) || {
         echo "Error: Failed to query beads for epics" >&2
         return 1
     }
 
     # Find epic where title contains the feature name
+    # Normalize hyphens to spaces so "linemark-mvp" matches "Linemark MVP"
     local epic_id
     epic_id=$(echo "$epics_json" | jq -r --arg name "$feature_name" \
-        '.[] | select(.title | ascii_downcase | contains($name | ascii_downcase)) | .id' | head -n1)
+        '.[] | select(.title | ascii_downcase | gsub("-"; " ") | contains($name | ascii_downcase | gsub("-"; " "))) | .id' | head -n1)
 
     if [[ -z "$epic_id" ]]; then
         echo "Error: No epic found matching feature '$feature_name'" >&2
@@ -551,7 +552,7 @@ validate_epic_exists() {
     log DEBUG "Validating epic: $epic_id"
 
     # Query beads for this epic ID
-    epic_data=$(npx bd list --type epic --json 2>/dev/null | \
+    epic_data=$(npx bd list --type feature --json 2>/dev/null | \
         jq -r --arg id "$epic_id" '.[] | select(.id == $id)') || {
         log ERROR "Failed to query beads for epics"
         return 1
