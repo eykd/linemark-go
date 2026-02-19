@@ -194,9 +194,14 @@ func (s *OutlineService) Add(ctx context.Context, title, parentMP string) (*AddR
 
 	slugStr := slug.Slug(title)
 	filename := domain.GenerateFilename(mp, sid, "draft", slugStr)
-	content := fmt.Sprintf("---\ntitle: %s\n---\n", title)
+	content := formatFrontmatter(title)
 
 	if err := s.writer.WriteFile(ctx, filename, content); err != nil {
+		return nil, err
+	}
+
+	notesFilename := domain.GenerateFilename(mp, sid, "notes", "")
+	if err := s.writer.WriteFile(ctx, notesFilename, ""); err != nil {
 		return nil, err
 	}
 
@@ -205,6 +210,14 @@ func (s *OutlineService) Add(ctx context.Context, title, parentMP string) (*AddR
 		MP:       mp,
 		Filename: filename,
 	}, nil
+}
+
+// formatFrontmatter creates YAML frontmatter with a title field.
+func formatFrontmatter(title string) string {
+	if strings.Contains(title, ":") {
+		return fmt.Sprintf("---\ntitle: \"%s\"\n---\n", title)
+	}
+	return fmt.Sprintf("---\ntitle: %s\n---\n", title)
 }
 
 // buildChildMP constructs an MP path by appending a numbered segment under parentMP.
