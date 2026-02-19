@@ -68,7 +68,7 @@ func TestOutlineService_MutatingCommands_Locking(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(cmd.name+"/"+tt.name, func(t *testing.T) {
 				locker := &mockLocker{tryLockErr: tt.tryLockErr}
-				svc := NewOutlineService(locker)
+				svc := NewOutlineService(nil, nil, locker, nil)
 				fn := cmd.call(svc)
 
 				_, err := fn(context.Background(), "notes", "001")
@@ -127,7 +127,7 @@ func TestOutlineService_ReadOnlyCommands_BypassLocking(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(cmd.name+"/"+tt.name, func(t *testing.T) {
 				locker := &mockLocker{tryLockErr: tt.tryLockErr}
-				svc := NewOutlineService(locker)
+				svc := NewOutlineService(nil, nil, locker, nil)
 				fn := cmd.call(svc)
 
 				err := fn(context.Background())
@@ -176,7 +176,7 @@ func TestOutlineService_Repair_Locking(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			locker := &mockLocker{tryLockErr: tt.tryLockErr}
-			svc := NewOutlineService(locker)
+			svc := NewOutlineService(nil, nil, locker, nil)
 
 			_, err := svc.Repair(context.Background())
 
@@ -202,7 +202,7 @@ func TestOutlineService_Repair_Locking(t *testing.T) {
 
 func TestOutlineService_ErrAlreadyLocked_HasClearMessage(t *testing.T) {
 	locker := &mockLocker{tryLockErr: lock.ErrAlreadyLocked}
-	svc := NewOutlineService(locker)
+	svc := NewOutlineService(nil, nil, locker, nil)
 
 	_, err := svc.AddType(context.Background(), "notes", "001")
 	if err == nil {

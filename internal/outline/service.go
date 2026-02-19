@@ -65,9 +65,14 @@ type OutlineService struct {
 	reserver SIDReserver
 }
 
-// NewOutlineService creates an OutlineService with the given Locker.
-func NewOutlineService(locker Locker) *OutlineService {
-	return &OutlineService{locker: locker}
+// NewOutlineService creates an OutlineService with the given dependencies.
+func NewOutlineService(reader DirectoryReader, writer FileWriter, locker Locker, reserver SIDReserver) *OutlineService {
+	return &OutlineService{
+		reader:   reader,
+		writer:   writer,
+		locker:   locker,
+		reserver: reserver,
+	}
 }
 
 // AddType adds a document type to a node, acquiring an advisory lock first.
@@ -164,32 +169,7 @@ func (s *OutlineService) Add(ctx context.Context, title, parentMP string) (*AddR
 		return nil, err
 	}
 
-	var occupied []int
-	if parentMP == "" {
-		for _, f := range files {
-			pf, parseErr := domain.ParseFilename(f)
-			if parseErr != nil {
-				continue
-			}
-			if pf.Depth == 1 {
-				n, _ := strconv.Atoi(pf.PathParts[0])
-				occupied = append(occupied, n)
-			}
-		}
-	} else {
-		parentDepth := strings.Count(parentMP, "-") + 1
-		prefix := parentMP + "-"
-		for _, f := range files {
-			pf, parseErr := domain.ParseFilename(f)
-			if parseErr != nil {
-				continue
-			}
-			if strings.HasPrefix(pf.MP, prefix) && pf.Depth == parentDepth+1 {
-				n, _ := strconv.Atoi(pf.PathParts[len(pf.PathParts)-1])
-				occupied = append(occupied, n)
-			}
-		}
-	}
+	occupied := collectChildNumbers(files, parentMP)
 
 	nextNum, err := domain.NextSiblingNumber(occupied)
 	if err != nil {
@@ -217,4 +197,29 @@ func (s *OutlineService) Add(ctx context.Context, title, parentMP string) (*AddR
 		MP:       mp,
 		Filename: filename,
 	}, nil
+}
+
+// isDirectChild reports whether pf is a direct child of parentMP.
+func isDirectChild(pf domain.ParsedFile, parentMP string) bool {
+	if parentMP == "" {
+		return pf.Depth == 1
+	}
+	parentDepth := strings.Count(parentMP, "-") + 1
+	return strings.HasPrefix(pf.MP, parentMP+"-") && pf.Depth == parentDepth+1
+}
+
+// collectChildNumbers returns the occupied sibling numbers under parentMP.
+func collectChildNumbers(files []string, parentMP string) []int {
+	var occupied []int
+	for _, f := range files {
+		pf, parseErr := domain.ParseFilename(f)
+		if parseErr != nil {
+			continue
+		}
+		if isDirectChild(pf, parentMP) {
+			n, _ := strconv.Atoi(pf.PathParts[len(pf.PathParts)-1])
+			occupied = append(occupied, n)
+		}
+	}
+	return occupied
 }

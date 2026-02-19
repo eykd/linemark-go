@@ -49,16 +49,6 @@ func (f *fakeSIDReserver) Reserve(_ context.Context) (string, error) {
 	return f.sid, f.err
 }
 
-// newTestOutlineService creates an OutlineService with all dependencies for testing.
-func newTestOutlineService(reader DirectoryReader, writer FileWriter, locker Locker, reserver SIDReserver) *OutlineService {
-	return &OutlineService{
-		reader:   reader,
-		writer:   writer,
-		locker:   locker,
-		reserver: reserver,
-	}
-}
-
 // --- Load tests ---
 
 func TestOutlineService_Load(t *testing.T) {
@@ -121,7 +111,7 @@ func TestOutlineService_Load(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			reader := &fakeDirectoryReader{files: tt.files, err: tt.readDirErr}
-			svc := newTestOutlineService(reader, nil, &mockLocker{}, nil)
+			svc := NewOutlineService(reader, nil, &mockLocker{}, nil)
 
 			result, err := svc.Load(context.Background())
 
@@ -147,7 +137,7 @@ func TestOutlineService_Load(t *testing.T) {
 func TestOutlineService_Load_BypassesLocking(t *testing.T) {
 	locker := &mockLocker{tryLockErr: lock.ErrAlreadyLocked}
 	reader := &fakeDirectoryReader{files: []string{}}
-	svc := newTestOutlineService(reader, nil, locker, nil)
+	svc := NewOutlineService(reader, nil, locker, nil)
 
 	_, err := svc.Load(context.Background())
 
@@ -163,7 +153,7 @@ func TestOutlineService_Load_NodeDetails(t *testing.T) {
 	reader := &fakeDirectoryReader{
 		files: []string{"100_ABCD1234EF_draft_hello-world.md"},
 	}
-	svc := newTestOutlineService(reader, nil, &mockLocker{}, nil)
+	svc := NewOutlineService(reader, nil, &mockLocker{}, nil)
 
 	result, err := svc.Load(context.Background())
 
@@ -195,7 +185,7 @@ func TestOutlineService_Load_FindingDetails(t *testing.T) {
 	reader := &fakeDirectoryReader{
 		files: []string{"not-valid.txt"},
 	}
-	svc := newTestOutlineService(reader, nil, &mockLocker{}, nil)
+	svc := NewOutlineService(reader, nil, &mockLocker{}, nil)
 
 	result, err := svc.Load(context.Background())
 
@@ -260,7 +250,7 @@ func TestOutlineService_Add(t *testing.T) {
 			writer := &fakeFileWriter{written: make(map[string]string)}
 			locker := &mockLocker{}
 			reserver := &fakeSIDReserver{sid: tt.sid}
-			svc := newTestOutlineService(reader, writer, locker, reserver)
+			svc := NewOutlineService(reader, writer, locker, reserver)
 
 			result, err := svc.Add(context.Background(), tt.title, tt.parentMP)
 
@@ -282,7 +272,7 @@ func TestOutlineService_Add_ResultDetails(t *testing.T) {
 	writer := &fakeFileWriter{written: make(map[string]string)}
 	locker := &mockLocker{}
 	reserver := &fakeSIDReserver{sid: "ABCD1234EF00"}
-	svc := newTestOutlineService(reader, writer, locker, reserver)
+	svc := NewOutlineService(reader, writer, locker, reserver)
 
 	result, err := svc.Add(context.Background(), "Hello World", "")
 
@@ -305,7 +295,7 @@ func TestOutlineService_Add_FileContent(t *testing.T) {
 	writer := &fakeFileWriter{written: make(map[string]string)}
 	locker := &mockLocker{}
 	reserver := &fakeSIDReserver{sid: "ABCD1234EF00"}
-	svc := newTestOutlineService(reader, writer, locker, reserver)
+	svc := NewOutlineService(reader, writer, locker, reserver)
 
 	_, err := svc.Add(context.Background(), "Hello World", "")
 
@@ -350,7 +340,7 @@ func TestOutlineService_Add_Locking(t *testing.T) {
 			reader := &fakeDirectoryReader{files: []string{}}
 			writer := &fakeFileWriter{written: make(map[string]string)}
 			reserver := &fakeSIDReserver{sid: "ABCD1234EF00"}
-			svc := newTestOutlineService(reader, writer, locker, reserver)
+			svc := NewOutlineService(reader, writer, locker, reserver)
 
 			_, err := svc.Add(context.Background(), "Test", "")
 
@@ -380,7 +370,7 @@ func TestOutlineService_Add_SIDReserverError(t *testing.T) {
 	reader := &fakeDirectoryReader{files: []string{}}
 	writer := &fakeFileWriter{written: make(map[string]string)}
 	reserver := &fakeSIDReserver{err: reserveErr}
-	svc := newTestOutlineService(reader, writer, locker, reserver)
+	svc := NewOutlineService(reader, writer, locker, reserver)
 
 	_, err := svc.Add(context.Background(), "Test", "")
 
@@ -401,7 +391,7 @@ func TestOutlineService_Add_FileWriterError(t *testing.T) {
 	reader := &fakeDirectoryReader{files: []string{}}
 	writer := &fakeFileWriter{writeErr: writeErr}
 	reserver := &fakeSIDReserver{sid: "ABCD1234EF00"}
-	svc := newTestOutlineService(reader, writer, locker, reserver)
+	svc := NewOutlineService(reader, writer, locker, reserver)
 
 	_, err := svc.Add(context.Background(), "Test", "")
 
@@ -419,7 +409,7 @@ func TestOutlineService_Add_ReadDirError(t *testing.T) {
 	writer := &fakeFileWriter{written: make(map[string]string)}
 	locker := &mockLocker{}
 	reserver := &fakeSIDReserver{sid: "ABCD1234EF00"}
-	svc := newTestOutlineService(reader, writer, locker, reserver)
+	svc := NewOutlineService(reader, writer, locker, reserver)
 
 	_, err := svc.Add(context.Background(), "Test", "")
 
