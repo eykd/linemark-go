@@ -1,6 +1,6 @@
 {
   "complete": true,
-  "reason": "All requirements implemented with comprehensive test coverage: errors route to stderr, exit codes 0/1/2 mapped correctly, ContextError includes file path and operation context, 100% cmd package coverage",
+  "reason": "All requirements implemented with comprehensive test coverage: regex parsing, filename generation, empty slug handling, round-trip verification, and 100% statement coverage",
   "remaining_items": [],
   "test_gaps": []
 }
