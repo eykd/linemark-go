@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/eykd/linemark-go/internal/domain"
 	"github.com/spf13/cobra"
 )
 
@@ -675,5 +677,41 @@ func TestAddCmd_BeforeAfterMutuallyExclusive(t *testing.T) {
 	}
 	if runner.called {
 		t.Error("runner should not be called when flags are mutually exclusive")
+	}
+}
+
+func TestAddCmd_PlacementFlagRejectsInvalidSelector(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"invalid child-of: special chars", []string{"--child-of", "abc!@#", "Title"}},
+		{"invalid child-of: too short", []string{"--child-of", "ab", "Title"}},
+		{"invalid child-of: unknown prefix", []string{"--child-of", "foo:123", "Title"}},
+		{"invalid sibling-of: special chars", []string{"--sibling-of", "not-valid!", "Title"}},
+		{"invalid before: too short", []string{"--child-of", "100", "--before", "x", "Title"}},
+		{"invalid after: unknown prefix", []string{"--child-of", "100", "--after", "bar:456", "Title"}},
+		{"invalid child-of: mp prefix bad value", []string{"--child-of", "mp:invalid", "Title"}},
+		{"invalid child-of: sid prefix bad value", []string{"--child-of", "sid:ab", "Title"}},
+		{"invalid child-of: zero segment", []string{"--child-of", "000", "Title"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &mockAddRunner{result: chapterOneResult()}
+			cmd, _ := newTestAddCmd(runner, tt.args...)
+
+			err := cmd.Execute()
+
+			if err == nil {
+				t.Fatal("expected error for invalid selector")
+			}
+			if !errors.Is(err, domain.ErrInvalidSelector) {
+				t.Errorf("error should wrap ErrInvalidSelector, got: %v", err)
+			}
+			if runner.called {
+				t.Error("runner should not be called with invalid selector")
+			}
+		})
 	}
 }

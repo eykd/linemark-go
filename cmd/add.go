@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/eykd/linemark-go/internal/domain"
 	"github.com/spf13/cobra"
 )
 
@@ -54,6 +55,22 @@ func NewAddCmd(runner AddRunner) *cobra.Command {
 			}
 			if before != "" && after != "" {
 				return fmt.Errorf("--before and --after are mutually exclusive")
+			}
+
+			for _, pair := range []struct {
+				flag  string
+				value string
+			}{
+				{"--child-of", childOf},
+				{"--sibling-of", siblingOf},
+				{"--before", before},
+				{"--after", after},
+			} {
+				if pair.value != "" {
+					if _, err := domain.ParseSelector(pair.value); err != nil {
+						return fmt.Errorf("invalid selector for %s %q: %w", pair.flag, pair.value, err)
+					}
+				}
 			}
 
 			isDryRun := GetDryRun()
