@@ -10,8 +10,6 @@ import (
 	"strings"
 
 	"github.com/eykd/linemark-go/internal/domain"
-	"github.com/eykd/linemark-go/internal/frontmatter"
-	"github.com/eykd/linemark-go/internal/slug"
 )
 
 // ErrNodeNotFound is returned when a selector matches no node.
@@ -28,6 +26,25 @@ var ErrInsufficientGaps = errors.New("insufficient gaps for promoted children")
 
 // ErrCycleDetected is returned when a move would create a cycle.
 var ErrCycleDetected = errors.New("cycle detected")
+
+// Slugifier converts a title string to a URL-friendly slug.
+type Slugifier interface {
+	Slug(s string) string
+}
+
+// FrontmatterHandler provides frontmatter parsing and serialization operations.
+type FrontmatterHandler interface {
+	GetTitle(input string) (string, error)
+	SetTitle(input, newTitle string) (string, error)
+	EncodeYAMLValue(s string) string
+	Serialize(fm, body string) string
+}
+
+// defaultSlugifier is the package-level default Slugifier, set by the wiring layer.
+var defaultSlugifier Slugifier
+
+// defaultFMHandler is the package-level default FrontmatterHandler, set by the wiring layer.
+var defaultFMHandler FrontmatterHandler
 
 // DirectoryReader abstracts reading filenames from the project directory.
 type DirectoryReader interface {
@@ -144,16 +161,20 @@ type OutlineService struct {
 	deleter       FileDeleter
 	renamer       FileRenamer
 	contentReader ContentReader
+	slugifier     Slugifier
+	fmHandler     FrontmatterHandler
 }
 
 // NewOutlineService creates an OutlineService with the given dependencies.
 func NewOutlineService(reader DirectoryReader, writer FileWriter, locker Locker, reserver SIDReserver) *OutlineService {
 	return &OutlineService{
-		reader:   reader,
-		writer:   writer,
-		locker:   locker,
-		reserver: reserver,
-		builder:  &defaultOutlineBuilder{},
+		reader:    reader,
+		writer:    writer,
+		locker:    locker,
+		reserver:  reserver,
+		builder:   &defaultOutlineBuilder{},
+		slugifier: defaultSlugifier,
+		fmHandler: defaultFMHandler,
 	}
 }
 
@@ -356,11 +377,11 @@ func (s *OutlineService) repairImpl(ctx context.Context) (*RepairResult, error) 
 				if err != nil {
 					continue
 				}
-				title, err := frontmatter.GetTitle(content)
+				title, err := s.fmHandler.GetTitle(content)
 				if err != nil || title == "" {
 					continue
 				}
-				expectedSlug := slug.Slug(title)
+				expectedSlug := s.slugifier.Slug(title)
 				pf, err := domain.ParseFilename(doc.Filename)
 				if err != nil {
 					continue
@@ -687,11 +708,11 @@ func (s *OutlineService) renameImpl(ctx context.Context, selector, newTitle stri
 		oldFilename := generateName(draftFile)
 		content, err := s.contentReader.ReadFile(ctx, oldFilename)
 		if err == nil {
-			oldTitle, _ = frontmatter.GetTitle(content)
+			oldTitle, _ = s.fmHandler.GetTitle(content)
 		}
 	}
 
-	newSlug := slug.Slug(newTitle)
+	newSlug := s.slugifier.Slug(newTitle)
 	renames := map[string]string{}
 
 	for _, pf := range parsed {
@@ -723,7 +744,7 @@ func (s *OutlineService) renameImpl(ctx context.Context, selector, newTitle stri
 		oldFilename := generateName(draftFile)
 		content, err := s.contentReader.ReadFile(ctx, oldFilename)
 		if err == nil {
-			updatedContent, err := frontmatter.SetTitle(content, newTitle)
+			updatedContent, err := s.fmHandler.SetTitle(content, newTitle)
 			if err == nil {
 				newFilename := domain.GenerateFilename(nodeMP, nodeSID, domain.DocTypeDraft, newSlug)
 				if writeErr := s.writer.WriteFile(ctx, newFilename, updatedContent); writeErr != nil {
@@ -985,7 +1006,7 @@ func (s *OutlineService) Add(ctx context.Context, title, parentMP string) (*AddR
 
 	mp := buildChildMP(parentMP, nextNum)
 
-	slugStr := slug.Slug(title)
+	slugStr := s.slugifier.Slug(title)
 	filename := domain.GenerateFilename(mp, sid, domain.DocTypeDraft, slugStr)
 	content := formatFrontmatter(title)
 
@@ -1008,7 +1029,7 @@ func (s *OutlineService) Add(ctx context.Context, title, parentMP string) (*AddR
 // formatFrontmatter creates YAML frontmatter with a title field.
 // The title is encoded as a safe YAML scalar to prevent injection.
 func formatFrontmatter(title string) string {
-	return frontmatter.Serialize("title: "+frontmatter.EncodeYAMLValue(title)+"\n", "")
+	return defaultFMHandler.Serialize("title: "+defaultFMHandler.EncodeYAMLValue(title)+"\n", "")
 }
 
 // buildChildMP constructs an MP path by appending a numbered segment under parentMP.
