@@ -24,6 +24,9 @@ var ErrNodeHasChildren = errors.New("node has children; use --recursive or --pro
 // ErrInsufficientGaps is returned when promoting children but not enough sibling gaps exist.
 var ErrInsufficientGaps = errors.New("insufficient gaps for promoted children")
 
+// ErrCycleDetected is returned when a move would create a cycle.
+var ErrCycleDetected = errors.New("cycle detected")
+
 // DirectoryReader abstracts reading filenames from the project directory.
 type DirectoryReader interface {
 	ReadDir(ctx context.Context) ([]string, error)
@@ -233,6 +236,11 @@ func findNodeBySID(nodes []domain.Node, sid string) (domain.Node, error) {
 	}
 }
 
+// MoveResult holds the result of a move operation.
+type MoveResult struct {
+	Renames map[string]string
+}
+
 // DeleteResult holds the result of a delete operation at the service level.
 type DeleteResult struct {
 	FilesDeleted  []string
@@ -301,6 +309,70 @@ func (s *OutlineService) Delete(ctx context.Context, sel domain.Selector, mode d
 	default: // DeleteModePromote
 		return s.promoteChildren(ctx, parsed, targetMP, targetSID, targetFiles, descendantFiles, apply)
 	}
+}
+
+// Move relocates a node and its descendants under a new parent, acquiring an advisory lock first.
+func (s *OutlineService) Move(ctx context.Context, source, target domain.Selector, before, after string, apply bool) (*MoveResult, error) {
+	if err := s.locker.TryLock(ctx); err != nil {
+		return nil, err
+	}
+	defer func() { _ = s.locker.Unlock() }()
+
+	files, err := s.reader.ReadDir(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var parsed []domain.ParsedFile
+	for _, f := range files {
+		pf, parseErr := domain.ParseFilename(f)
+		if parseErr == nil {
+			parsed = append(parsed, pf)
+		}
+	}
+
+	sourceMP, _, err := resolveTarget(parsed, source)
+	if err != nil {
+		return nil, err
+	}
+	targetMP, _, err := resolveTarget(parsed, target)
+	if err != nil {
+		return nil, err
+	}
+
+	if targetMP == sourceMP || strings.HasPrefix(targetMP, sourceMP+"-") {
+		return nil, fmt.Errorf("cannot move %s to descendant %s: %w", sourceMP, targetMP, ErrCycleDetected)
+	}
+
+	nextNum, _ := domain.NextSiblingNumber(nil)
+	newSourceMP := buildChildMP(targetMP, nextNum)
+
+	renames := map[string]string{}
+	for _, pf := range parsed {
+		if pf.MP == sourceMP || strings.HasPrefix(pf.MP, sourceMP+"-") {
+			oldName := generateName(pf)
+			newMP := newSourceMP + pf.MP[len(sourceMP):]
+			newName := domain.GenerateFilename(newMP, pf.SID, pf.DocType, pf.Slug)
+			renames[oldName] = newName
+		}
+	}
+
+	result := &MoveResult{Renames: renames}
+
+	if !apply {
+		return result, nil
+	}
+
+	var completed [][2]string
+	for oldName, newName := range renames {
+		if err := s.renamer.RenameFile(ctx, oldName, newName); err != nil {
+			rollbackRenames(ctx, s.renamer, completed)
+			return nil, fmt.Errorf("rename %s -> %s: %w", oldName, newName, err)
+		}
+		completed = append(completed, [2]string{oldName, newName})
+	}
+
+	return result, nil
 }
 
 // generateName reconstructs the filename from a ParsedFile's components.
