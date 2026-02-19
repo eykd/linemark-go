@@ -1,6 +1,6 @@
 {
   "complete": true,
-  "reason": "All requirements implemented with comprehensive test coverage: NFD normalization, Mn mark stripping, lowercase, whitespace-to-dash, non-alnum stripping, dash collapsing, empty input handling, and 100% statement coverage across 24 test cases",
+  "reason": "All requirements implemented with comprehensive test coverage: Split/GetTitle/SetTitle/Serialize at 100% coverage, yaml.Node round-trip, unknown field preservation, empty frontmatter handling, YAML injection protection",
   "remaining_items": [],
   "test_gaps": []
 }
