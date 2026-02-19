@@ -14,6 +14,7 @@ var verbose bool
 
 func init() {
 	rootCmd = NewRootCmd()
+	rootCmd.AddCommand(NewCheckCmd(nil))
 }
 
 // GetVerbose returns the current verbose flag state.
