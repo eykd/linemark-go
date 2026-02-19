@@ -9,7 +9,11 @@ import (
 )
 
 // DeleteResult holds the outcome of a delete operation.
-type DeleteResult struct{}
+type DeleteResult struct {
+	FilesDeleted  []string `json:"files_deleted"`
+	SIDsPreserved []string `json:"sids_preserved"`
+	Planned       bool     `json:"planned"`
+}
 
 // DeleteRunner defines the interface for running the delete operation.
 type DeleteRunner interface {
@@ -18,6 +22,8 @@ type DeleteRunner interface {
 
 // NewDeleteCmd creates the delete command with the given runner.
 func NewDeleteCmd(runner DeleteRunner) *cobra.Command {
+	var jsonOutput bool
+
 	cmd := &cobra.Command{
 		Use:          "delete <selector>",
 		Short:        "Delete a node from the outline",
@@ -30,10 +36,27 @@ func NewDeleteCmd(runner DeleteRunner) *cobra.Command {
 			}
 
 			isDryRun := GetDryRun()
-			_, err := runner.Delete(cmd.Context(), selector, !isDryRun)
-			return err
+			result, err := runner.Delete(cmd.Context(), selector, !isDryRun)
+			if err != nil {
+				return err
+			}
+
+			if isDryRun {
+				result.Planned = true
+			}
+
+			if jsonOutput || GetJSON() {
+				writeJSON(cmd.OutOrStdout(), result)
+			} else {
+				for _, f := range result.FilesDeleted {
+					fmt.Fprintln(cmd.OutOrStdout(), f)
+				}
+			}
+			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output results as JSON")
 
 	return cmd
 }
