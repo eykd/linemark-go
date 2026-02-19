@@ -59,7 +59,7 @@ func formatRepairJSON(w io.Writer, repairs []RepairAction, unrepaired []CheckFin
 	}
 	out.Summary.Repaired = len(repairs)
 	out.Summary.Unrepaired = len(unrepaired)
-	writeJSONImpl(w, out)
+	writeJSON(w, out)
 }
 
 // formatRepairHuman writes repair results as human-readable text to w.

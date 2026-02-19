@@ -62,7 +62,7 @@ func newTypesListCmd(svc TypesService) *cobra.Command {
 			}
 
 			if jsonOutput || GetJSON() {
-				writeJSONImpl(cmd.OutOrStdout(), result)
+				writeJSON(cmd.OutOrStdout(), result)
 			} else {
 				for _, t := range result.Types {
 					fmt.Fprintln(cmd.OutOrStdout(), t)
@@ -92,7 +92,7 @@ func newTypesAddCmd(svc TypesService) *cobra.Command {
 			}
 
 			if jsonOutput || GetJSON() {
-				writeJSONImpl(cmd.OutOrStdout(), result)
+				writeJSON(cmd.OutOrStdout(), result)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "Added %s\n", result.Filename)
 			}
@@ -120,7 +120,7 @@ func newTypesRemoveCmd(svc TypesService) *cobra.Command {
 			}
 
 			if jsonOutput || GetJSON() {
-				writeJSONImpl(cmd.OutOrStdout(), result)
+				writeJSON(cmd.OutOrStdout(), result)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "Removed %s\n", result.Filename)
 			}

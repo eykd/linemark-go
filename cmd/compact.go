@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 )
@@ -48,9 +49,9 @@ func NewCompactCmd(runner CompactRunner) *cobra.Command {
 			}
 
 			if jsonOutput || GetJSON() {
-				return writeCompactJSON(cmd, result)
+				return writeCompactJSON(cmd.OutOrStdout(), result)
 			}
-			return writeCompactHuman(cmd, result)
+			return writeCompactHuman(cmd.OutOrStdout(), result)
 		},
 	}
 
@@ -60,13 +61,11 @@ func NewCompactCmd(runner CompactRunner) *cobra.Command {
 	return cmd
 }
 
-func writeCompactJSON(cmd *cobra.Command, result *CompactResult) error {
-	enc := json.NewEncoder(cmd.OutOrStdout())
-	return enc.Encode(result)
+func writeCompactJSON(w io.Writer, result *CompactResult) error {
+	return json.NewEncoder(w).Encode(result)
 }
 
-func writeCompactHuman(cmd *cobra.Command, result *CompactResult) error {
-	w := cmd.OutOrStdout()
+func writeCompactHuman(w io.Writer, result *CompactResult) error {
 	for _, r := range result.Renames {
 		fmt.Fprintf(w, "  %s -> %s\n", r.Old, r.New)
 	}

@@ -137,8 +137,8 @@ type checkJSONResponse struct {
 	} `json:"summary"`
 }
 
-// writeJSONImpl encodes v as JSON to w, handling I/O errors at the boundary.
-func writeJSONImpl(w io.Writer, v interface{}) {
+// writeJSON encodes v as JSON to w, handling I/O errors at the boundary.
+func writeJSON(w io.Writer, v interface{}) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		fmt.Fprintf(w, "{\"error\":%q}\n", err.Error())
 	}
@@ -164,7 +164,7 @@ func formatCheckJSON(w io.Writer, findings []CheckFinding, errCount, warnCount i
 	out := checkJSONResponse{Findings: findings}
 	out.Summary.Errors = errCount
 	out.Summary.Warnings = warnCount
-	writeJSONImpl(w, out)
+	writeJSON(w, out)
 }
 
 // formatCheckHuman writes findings as human-readable text to w.

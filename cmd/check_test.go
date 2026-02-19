@@ -456,6 +456,17 @@ func TestExitCodeFromError(t *testing.T) {
 	}
 }
 
+func TestWriteJSON_EncodingError(t *testing.T) {
+	buf := new(bytes.Buffer)
+	// Channels cannot be JSON-encoded, triggering the error path
+	writeJSON(buf, make(chan int))
+
+	output := buf.String()
+	if !strings.Contains(output, `"error"`) {
+		t.Errorf("expected JSON error fallback, got: %q", output)
+	}
+}
+
 func TestCheckCmd_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
