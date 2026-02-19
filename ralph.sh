@@ -1098,9 +1098,10 @@ check_for_changes() {
 # Arguments: test_output (raw failing test output)
 generate_baseline_fix_prompt() {
     local test_output="$1"
-    local go_tdd_skill
+    local go_tdd_skill commit_skill
 
     go_tdd_skill=$(load_skill_content "go-tdd")
+    commit_skill=$(load_skill_content "commit")
 
     cat <<PROMPT_EOF
 ## Non-Interactive Mode
@@ -1133,7 +1134,8 @@ $test_output
 $go_tdd_skill
 </go-tdd-skill>
 
-$(generate_git_footer)
+### Commit Reference
+$commit_skill
 PROMPT_EOF
 }
 
