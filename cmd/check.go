@@ -110,19 +110,20 @@ func (e *UnrepairedError) ExitCode() int {
 	return 2
 }
 
+// ExitCoder is implemented by errors that carry a specific process exit code.
+type ExitCoder interface {
+	ExitCode() int
+}
+
 // ExitCodeFromError returns the appropriate exit code for an error.
-// nil returns 0, FindingsDetectedError/UnrepairedError returns 2, all others return 1.
+// nil returns 0, ExitCoder errors return their code, all others return 1.
 func ExitCodeFromError(err error) int {
 	if err == nil {
 		return 0
 	}
-	var findingsErr *FindingsDetectedError
-	if errors.As(err, &findingsErr) {
-		return findingsErr.ExitCode()
-	}
-	var unrepairedErr *UnrepairedError
-	if errors.As(err, &unrepairedErr) {
-		return unrepairedErr.ExitCode()
+	var coder ExitCoder
+	if errors.As(err, &coder) {
+		return coder.ExitCode()
 	}
 	return 1
 }

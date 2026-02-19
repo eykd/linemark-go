@@ -434,6 +434,16 @@ func TestExitCodeFromError(t *testing.T) {
 			err:      fmt.Errorf("check failed: %w", &FindingsDetectedError{Errors: 2, Warnings: 1}),
 			wantCode: 2,
 		},
+		{
+			name:     "unrepaired error returns 2",
+			err:      &UnrepairedError{Count: 3},
+			wantCode: 2,
+		},
+		{
+			name:     "wrapped unrepaired error returns 2",
+			err:      fmt.Errorf("repair failed: %w", &UnrepairedError{Count: 1}),
+			wantCode: 2,
+		},
 	}
 
 	for _, tt := range tests {
