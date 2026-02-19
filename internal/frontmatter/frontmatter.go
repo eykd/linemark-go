@@ -88,7 +88,7 @@ func SetTitle(input string, newTitle string) (string, error) {
 		return "", err
 	}
 
-	titleLine := "title: " + encodeYAMLValue(newTitle) + "\n"
+	titleLine := "title: " + EncodeYAMLValue(newTitle) + "\n"
 
 	if fm == "" {
 		return Serialize(titleLine, body), nil
@@ -111,11 +111,11 @@ func SetTitle(input string, newTitle string) (string, error) {
 	return Serialize(fm+titleLine, body), nil
 }
 
-// encodeYAMLValue encodes a string as a safe YAML scalar value.
+// EncodeYAMLValue encodes a string as a safe YAML scalar value.
 // Strings containing newlines, colons, double quotes, backslashes,
 // or leading # use double-quoted style with escape sequences that
 // prevent YAML injection.
-func encodeYAMLValue(s string) string {
+func EncodeYAMLValue(s string) string {
 	if !strings.ContainsAny(s, "\n:\"\\") && !strings.HasPrefix(s, "#") {
 		return s
 	}

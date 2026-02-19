@@ -97,7 +97,7 @@ func TestEncodeYAMLValue_EscapesDoubleQuotes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			encoded := encodeYAMLValue(tt.input)
+			encoded := EncodeYAMLValue(tt.input)
 			// The encoded value should be valid when placed in a YAML document
 			doc := "---\ntitle: " + encoded + "\n---\n"
 			got, err := GetTitle(doc)
