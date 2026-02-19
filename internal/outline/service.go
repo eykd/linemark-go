@@ -180,32 +180,39 @@ func (s *OutlineService) ResolveSelector(ctx context.Context, sel domain.Selecto
 		return domain.Node{}, err
 	}
 
-	switch sel.Kind() {
-	case domain.SelectorMP:
-		for _, n := range result.Outline.Nodes {
-			if n.MP.String() == sel.Value() {
-				return n, nil
-			}
-		}
-		return domain.Node{}, ErrNodeNotFound
-	case domain.SelectorSID:
-		var matches []domain.Node
-		for _, n := range result.Outline.Nodes {
-			if n.SID == sel.Value() {
-				matches = append(matches, n)
-			}
-		}
-		switch len(matches) {
-		case 0:
-			return domain.Node{}, ErrNodeNotFound
-		case 1:
-			return matches[0], nil
-		default:
-			return domain.Node{}, ErrAmbiguousSelector
+	if sel.Kind() == domain.SelectorMP {
+		return findNodeByMP(result.Outline.Nodes, sel.Value())
+	}
+	return findNodeBySID(result.Outline.Nodes, sel.Value())
+}
+
+// findNodeByMP returns the first node whose MP matches the given value.
+func findNodeByMP(nodes []domain.Node, mp string) (domain.Node, error) {
+	for _, n := range nodes {
+		if n.MP.String() == mp {
+			return n, nil
 		}
 	}
-
 	return domain.Node{}, ErrNodeNotFound
+}
+
+// findNodeBySID returns the unique node with the given SID, or an error if
+// zero or multiple nodes match.
+func findNodeBySID(nodes []domain.Node, sid string) (domain.Node, error) {
+	var matches []domain.Node
+	for _, n := range nodes {
+		if n.SID == sid {
+			matches = append(matches, n)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return domain.Node{}, ErrNodeNotFound
+	case 1:
+		return matches[0], nil
+	default:
+		return domain.Node{}, ErrAmbiguousSelector
+	}
 }
 
 // Add creates a new node in the outline, acquiring an advisory lock first.
