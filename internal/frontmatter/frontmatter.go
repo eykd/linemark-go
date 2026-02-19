@@ -45,6 +45,16 @@ func Split(input string) (string, string, error) {
 	return "", "", errors.New("unclosed frontmatter")
 }
 
+// findKeyIndex returns the index of a key in a YAML mapping node, or -1 if not found.
+func findKeyIndex(mapping *yaml.Node, key string) int {
+	for i := 0; i < len(mapping.Content)-1; i += 2 {
+		if mapping.Content[i].Value == key {
+			return i
+		}
+	}
+	return -1
+}
+
 // GetTitle extracts the title field from a document's YAML frontmatter.
 func GetTitle(input string) (string, error) {
 	fm, _, err := Split(input)
@@ -57,18 +67,16 @@ func GetTitle(input string) (string, error) {
 		return "", err
 	}
 
-	mapping := doc.Content[0]
-	for i := 0; i < len(mapping.Content)-1; i += 2 {
-		if mapping.Content[i].Value == "title" {
-			val := mapping.Content[i+1]
-			if val.Tag != "!!str" {
-				return "", errors.New("title is not a string")
-			}
-			return val.Value, nil
-		}
+	idx := findKeyIndex(doc.Content[0], "title")
+	if idx < 0 {
+		return "", nil
 	}
 
-	return "", nil
+	val := doc.Content[0].Content[idx+1]
+	if val.Tag != "!!str" {
+		return "", errors.New("title is not a string")
+	}
+	return val.Value, nil
 }
 
 // SetTitle sets or updates the title field in a document's YAML frontmatter.
@@ -92,13 +100,12 @@ func SetTitle(input string, newTitle string) (string, error) {
 	}
 
 	mapping := doc.Content[0]
-	for i := 0; i < len(mapping.Content)-1; i += 2 {
-		if mapping.Content[i].Value == "title" {
-			keyLine := mapping.Content[i].Line
-			lines := strings.SplitAfter(fm, "\n")
-			lines[keyLine-1] = titleLine
-			return Serialize(strings.Join(lines, ""), body), nil
-		}
+	idx := findKeyIndex(mapping, "title")
+	if idx >= 0 {
+		keyLine := mapping.Content[idx].Line
+		lines := strings.SplitAfter(fm, "\n")
+		lines[keyLine-1] = titleLine
+		return Serialize(strings.Join(lines, ""), body), nil
 	}
 
 	return Serialize(fm+titleLine, body), nil
@@ -108,14 +115,7 @@ func SetTitle(input string, newTitle string) (string, error) {
 // Strings containing newlines or colons use double-quoted style with
 // escape sequences that prevent YAML injection.
 func encodeYAMLValue(s string) string {
-	needsQuotes := false
-	for _, c := range s {
-		if c == '\n' || c == ':' {
-			needsQuotes = true
-		}
-	}
-
-	if !needsQuotes {
+	if !strings.ContainsAny(s, "\n:") {
 		return s
 	}
 
