@@ -34,6 +34,7 @@ readonly STEP_ACCEPTANCE="ACCEPTANCE"
 readonly REVIEW_OUTPUT_FILE=".ralph-review.json"
 readonly ACCEPTANCE_OUTPUT_FILE=".ralph-acceptance.json"
 readonly ATDD_MAX_INNER_CYCLES=15
+readonly BASELINE_FIX_MAX_ATTEMPTS=2  # max Claude attempts to fix failing baseline
 
 # Exit codes
 readonly EXIT_SUCCESS=0
@@ -995,6 +996,50 @@ check_baseline_tests() {
     return 0
 }
 
+# Attempt to auto-fix failing baseline tests by invoking Claude.
+# Loops up to BASELINE_FIX_MAX_ATTEMPTS times.
+# Returns 0 if tests are fixed, 1 if still failing.
+attempt_baseline_fix() {
+    local attempt=0
+    local test_output exit_code prompt
+
+    log INFO "Attempting baseline auto-fix (max $BASELINE_FIX_MAX_ATTEMPTS attempts)"
+
+    while (( attempt < BASELINE_FIX_MAX_ATTEMPTS )); do
+        attempt=$((attempt + 1))
+        log INFO "Baseline fix attempt $attempt/$BASELINE_FIX_MAX_ATTEMPTS"
+
+        # Capture current failing output
+        test_output=$(go test ./... 2>&1) && exit_code=0 || exit_code=$?
+
+        if [[ "$exit_code" -eq 0 ]]; then
+            log INFO "Baseline tests now pass (fixed before invoking Claude)"
+            return 0
+        fi
+
+        # Generate fix prompt and invoke Claude
+        prompt=$(generate_baseline_fix_prompt "$test_output")
+        if ! invoke_claude_with_retry "$prompt"; then
+            log WARN "Baseline fix attempt $attempt: Claude invocation failed"
+            continue
+        fi
+
+        # Re-check tests after Claude's fix
+        test_output=$(go test ./... 2>&1) && exit_code=0 || exit_code=$?
+
+        if [[ "$exit_code" -eq 0 ]]; then
+            log INFO "Baseline tests fixed on attempt $attempt"
+            return 0
+        fi
+
+        log WARN "Baseline fix attempt $attempt: tests still failing"
+        log_block "Post-Fix Test Output (attempt $attempt)" "$test_output"
+    done
+
+    log ERROR "Baseline auto-fix exhausted $BASELINE_FIX_MAX_ATTEMPTS attempts"
+    return 1
+}
+
 # Ralph's spot-check gate between TDD steps.
 # RED: expects test failure (exit != 0)
 # GREEN/REFACTOR: expects test success (exit == 0)
@@ -1048,6 +1093,49 @@ check_for_changes() {
 ##############################################################################
 # TDD prompt generators
 ##############################################################################
+
+# Generate prompt to fix failing baseline tests.
+# Arguments: test_output (raw failing test output)
+generate_baseline_fix_prompt() {
+    local test_output="$1"
+    local go_tdd_skill
+
+    go_tdd_skill=$(load_skill_content "go-tdd")
+
+    cat <<PROMPT_EOF
+## Non-Interactive Mode
+You are running in ralph's automation loop (non-interactive).
+You CANNOT ask questions or wait for user input.
+
+## Mission: Fix Failing Tests
+
+The test suite is currently failing. Your ONLY job is to diagnose and fix
+whatever is causing the failures. Do NOT add new features or make unrelated
+changes — fix only what is needed to make \`go test ./...\` pass.
+
+### Failing Test Output
+\`\`\`
+$test_output
+\`\`\`
+
+### Rules
+1. Diagnose the root cause from the test output above
+2. Fix ONLY what is needed to make tests pass
+3. Do NOT add new features or refactor unrelated code
+4. Do NOT delete or skip tests — fix the code or fix the test expectations
+5. Run \`go test ./...\` to verify your fix before committing
+6. Commit the fix with a message like: "fix: repair failing baseline tests"
+7. If the fix involves stale imports, renamed functions, or unbound acceptance
+   test stubs, those are the most common causes — check for those first
+
+### Reference: Go TDD Skill
+<go-tdd-skill>
+$go_tdd_skill
+</go-tdd-skill>
+
+$(generate_git_footer)
+PROMPT_EOF
+}
 
 # Generate RED step prompt: write failing test ONLY
 # Arguments: task_json, cycle_number, [remaining_items], [retry_context]
@@ -1591,9 +1679,14 @@ execute_unit_tdd_cycle() {
 
         # Check baseline tests before RED
         if ! check_baseline_tests; then
-            log ERROR "Baseline tests failing - marking task BLOCKED"
-            npx bd comment "$task_id" "BLOCKED: baseline tests failing before RED step" 2>/dev/null || true
-            return 1
+            log WARN "Baseline tests failing - attempting auto-fix"
+            if ! attempt_baseline_fix; then
+                log ERROR "Baseline auto-fix failed - marking task BLOCKED"
+                npx bd comment "$task_id" "BLOCKED: baseline tests failing (auto-fix failed after $BASELINE_FIX_MAX_ATTEMPTS attempts)" 2>/dev/null || true
+                return 1
+            fi
+            log INFO "Baseline tests fixed - continuing to RED step"
+            npx bd comment "$task_id" "Baseline tests were failing but auto-fixed" 2>/dev/null || true
         fi
 
         # --- RED: Write failing tests ---
@@ -1793,9 +1886,14 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>" 2>/dev/null || true
 
         # Check baseline tests before RED
         if ! check_baseline_tests; then
-            log ERROR "Baseline tests failing - marking task BLOCKED"
-            npx bd comment "$task_id" "BLOCKED: baseline tests failing before RED step" 2>/dev/null || true
-            return 1
+            log WARN "Baseline tests failing - attempting auto-fix"
+            if ! attempt_baseline_fix; then
+                log ERROR "Baseline auto-fix failed - marking task BLOCKED"
+                npx bd comment "$task_id" "BLOCKED: baseline tests failing (auto-fix failed after $BASELINE_FIX_MAX_ATTEMPTS attempts)" 2>/dev/null || true
+                return 1
+            fi
+            log INFO "Baseline tests fixed - continuing to RED step"
+            npx bd comment "$task_id" "Baseline tests were failing but auto-fixed" 2>/dev/null || true
         fi
 
         # --- RED: Write smallest possible failing unit test ---
