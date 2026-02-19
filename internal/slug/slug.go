@@ -12,46 +12,25 @@ import (
 // converts whitespace to dashes, strips non-alphanumeric
 // characters, and collapses consecutive dashes.
 func Slug(s string) string {
-	// NFD normalize to decompose characters.
-	s = norm.NFD.String(s)
+	normalized := norm.NFD.String(s)
 
-	// Strip combining (Mn) marks and lowercase.
 	var b strings.Builder
-	for _, r := range s {
-		if unicode.Is(unicode.Mn, r) {
+	prevDash := false
+
+	for _, r := range normalized {
+		switch {
+		case unicode.Is(unicode.Mn, r):
 			continue
-		}
-		b.WriteRune(unicode.ToLower(r))
-	}
-	s = b.String()
-
-	// Replace whitespace with dashes.
-	b.Reset()
-	for _, r := range s {
-		if unicode.IsSpace(r) {
-			b.WriteRune('-')
-		} else {
-			b.WriteRune(r)
+		case unicode.IsLetter(r), unicode.IsDigit(r):
+			b.WriteRune(unicode.ToLower(r))
+			prevDash = false
+		case unicode.IsSpace(r), r == '-':
+			if !prevDash && b.Len() > 0 {
+				b.WriteRune('-')
+				prevDash = true
+			}
 		}
 	}
-	s = b.String()
 
-	// Strip non-alphanumeric, non-dash characters.
-	b.Reset()
-	for _, r := range s {
-		if r == '-' || unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(r)
-		}
-	}
-	s = b.String()
-
-	// Collapse consecutive dashes.
-	for strings.Contains(s, "--") {
-		s = strings.ReplaceAll(s, "--", "-")
-	}
-
-	// Trim leading and trailing dashes.
-	s = strings.Trim(s, "-")
-
-	return s
+	return strings.TrimRight(b.String(), "-")
 }
