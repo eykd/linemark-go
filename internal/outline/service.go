@@ -32,6 +32,18 @@ type SIDReserver interface {
 	Reserve(ctx context.Context) (string, error)
 }
 
+// OutlineBuilder abstracts building an Outline from parsed files.
+type OutlineBuilder interface {
+	BuildOutline(files []domain.ParsedFile) (domain.Outline, []domain.Finding, error)
+}
+
+// defaultOutlineBuilder delegates to domain.BuildOutline.
+type defaultOutlineBuilder struct{}
+
+func (d *defaultOutlineBuilder) BuildOutline(files []domain.ParsedFile) (domain.Outline, []domain.Finding, error) {
+	return domain.BuildOutline(files)
+}
+
 // ModifyResult holds the result of a mutating outline operation.
 type ModifyResult struct{}
 
@@ -63,6 +75,7 @@ type OutlineService struct {
 	writer   FileWriter
 	locker   Locker
 	reserver SIDReserver
+	builder  OutlineBuilder
 }
 
 // NewOutlineService creates an OutlineService with the given dependencies.
@@ -72,6 +85,7 @@ func NewOutlineService(reader DirectoryReader, writer FileWriter, locker Locker,
 		writer:   writer,
 		locker:   locker,
 		reserver: reserver,
+		builder:  &defaultOutlineBuilder{},
 	}
 }
 
@@ -139,7 +153,7 @@ func (s *OutlineService) Load(ctx context.Context) (*LoadResult, error) {
 		parsed = append(parsed, pf)
 	}
 
-	outline, buildFindings, err := domain.BuildOutline(parsed)
+	outline, buildFindings, err := s.builder.BuildOutline(parsed)
 	if err != nil {
 		return nil, err
 	}
