@@ -1,6 +1,6 @@
 {
   "complete": true,
-  "reason": "All existing mutating commands (compact, types add, types remove) have --dry-run properly wired with apply parameter passthrough, Planned field on results, and comprehensive tests at 100% coverage; the listed files add/move/delete/rename do not exist yet as commands and are separate feature tasks",
+  "reason": "All requirements implemented with comprehensive test coverage: errors route to stderr, exit codes 0/1/2 mapped correctly, ContextError includes file path and operation context, 100% cmd package coverage",
   "remaining_items": [],
   "test_gaps": []
 }
