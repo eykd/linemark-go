@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/eykd/linemark-go/internal/domain"
+	"github.com/eykd/linemark-go/internal/frontmatter"
 	"github.com/eykd/linemark-go/internal/slug"
 )
 
@@ -58,6 +60,11 @@ type FileRenamer interface {
 	RenameFile(ctx context.Context, oldName, newName string) error
 }
 
+// ContentReader abstracts reading file contents from the project directory.
+type ContentReader interface {
+	ReadFile(ctx context.Context, filename string) (string, error)
+}
+
 // OutlineBuilder abstracts building an Outline from parsed files.
 type OutlineBuilder interface {
 	BuildOutline(files []domain.ParsedFile) (domain.Outline, []domain.Finding, error)
@@ -71,18 +78,48 @@ func (d *defaultOutlineBuilder) BuildOutline(files []domain.ParsedFile) (domain.
 }
 
 // ModifyResult holds the result of a mutating outline operation.
-type ModifyResult struct{}
+type ModifyResult struct {
+	Filename string
+	NodeMP   string
+	NodeSID  string
+}
 
 // ListResult holds the result of listing document types.
-type ListResult struct{}
+type ListResult struct {
+	Types   []string
+	NodeMP  string
+	NodeSID string
+}
 
 // CheckResult holds the result of checking the outline.
 type CheckResult struct {
 	Findings []domain.Finding
 }
 
+// RepairAction describes a single repair that was applied.
+type RepairAction struct {
+	Type domain.FindingType
+	Old  string
+	New  string
+}
+
 // RepairResult holds the result of repairing the outline.
-type RepairResult struct{}
+type RepairResult struct {
+	Repairs    []RepairAction
+	Unrepaired []domain.Finding
+}
+
+// CompactResult holds the result of a compact operation.
+type CompactResult struct {
+	Renames map[string]string
+}
+
+// RenameResult holds the result of a rename operation.
+type RenameResult struct {
+	OldTitle string
+	NewTitle string
+	Renames  map[string]string
+}
 
 // LoadResult holds the result of loading the outline from disk.
 type LoadResult struct {
@@ -99,13 +136,14 @@ type AddResult struct {
 
 // OutlineService coordinates outline mutations with advisory locking.
 type OutlineService struct {
-	reader   DirectoryReader
-	writer   FileWriter
-	locker   Locker
-	reserver SIDReserver
-	builder  OutlineBuilder
-	deleter  FileDeleter
-	renamer  FileRenamer
+	reader        DirectoryReader
+	writer        FileWriter
+	locker        Locker
+	reserver      SIDReserver
+	builder       OutlineBuilder
+	deleter       FileDeleter
+	renamer       FileRenamer
+	contentReader ContentReader
 }
 
 // NewOutlineService creates an OutlineService with the given dependencies.
@@ -126,7 +164,37 @@ func (s *OutlineService) AddType(ctx context.Context, docType, selector string) 
 	}
 	defer s.locker.Unlock()
 
-	return &ModifyResult{}, nil
+	if s.reader == nil {
+		return &ModifyResult{}, nil
+	}
+
+	return s.addTypeImpl(ctx, docType, selector)
+}
+
+// addTypeImpl performs the I/O operations for AddType.
+func (s *OutlineService) addTypeImpl(ctx context.Context, docType, selector string) (*ModifyResult, error) {
+	files, err := s.reader.ReadDir(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	parsed := parseValidFiles(files)
+
+	nodeMP, nodeSID, err := findNodeMP(parsed, selector)
+	if err != nil {
+		return nil, err
+	}
+
+	filename := domain.GenerateFilename(nodeMP, nodeSID, docType, "")
+	if err := s.writer.WriteFile(ctx, filename, ""); err != nil {
+		return nil, err
+	}
+
+	return &ModifyResult{
+		Filename: filename,
+		NodeMP:   nodeMP,
+		NodeSID:  nodeSID,
+	}, nil
 }
 
 // RemoveType removes a document type from a node, acquiring an advisory lock first.
@@ -136,12 +204,75 @@ func (s *OutlineService) RemoveType(ctx context.Context, docType, selector strin
 	}
 	defer s.locker.Unlock()
 
-	return &ModifyResult{}, nil
+	if s.reader == nil {
+		return &ModifyResult{}, nil
+	}
+
+	return s.removeTypeImpl(ctx, docType, selector)
+}
+
+// removeTypeImpl performs the I/O operations for RemoveType.
+func (s *OutlineService) removeTypeImpl(ctx context.Context, docType, selector string) (*ModifyResult, error) {
+	files, err := s.reader.ReadDir(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	parsed := parseValidFiles(files)
+
+	nodeMP, nodeSID, err := findNodeMP(parsed, selector)
+	if err != nil {
+		return nil, err
+	}
+
+	filename := domain.GenerateFilename(nodeMP, nodeSID, docType, "")
+	if err := s.deleter.DeleteFile(ctx, filename); err != nil {
+		return nil, err
+	}
+
+	return &ModifyResult{
+		Filename: filename,
+		NodeMP:   nodeMP,
+		NodeSID:  nodeSID,
+	}, nil
 }
 
 // ListTypes lists document types for a node without acquiring an advisory lock.
 func (s *OutlineService) ListTypes(ctx context.Context, selector string) (*ListResult, error) {
-	return &ListResult{}, nil
+	if s.reader == nil {
+		return &ListResult{}, nil
+	}
+
+	return s.listTypesImpl(ctx, selector)
+}
+
+// listTypesImpl performs the I/O operations for ListTypes.
+func (s *OutlineService) listTypesImpl(ctx context.Context, selector string) (*ListResult, error) {
+	files, err := s.reader.ReadDir(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	parsed := parseValidFiles(files)
+
+	nodeMP, nodeSID, err := findNodeMP(parsed, selector)
+	if err != nil {
+		return nil, err
+	}
+
+	var types []string
+	for _, pf := range parsed {
+		if pf.MP == nodeMP {
+			types = append(types, pf.DocType)
+		}
+	}
+	sort.Strings(types)
+
+	return &ListResult{
+		Types:   types,
+		NodeMP:  nodeMP,
+		NodeSID: nodeSID,
+	}, nil
 }
 
 // Check validates the outline without acquiring an advisory lock.
@@ -175,7 +306,88 @@ func (s *OutlineService) Repair(ctx context.Context) (*RepairResult, error) {
 	}
 	defer s.locker.Unlock()
 
-	return &RepairResult{}, nil
+	if s.reader == nil {
+		return &RepairResult{}, nil
+	}
+
+	return s.repairImpl(ctx)
+}
+
+// repairImpl performs the I/O operations for Repair.
+func (s *OutlineService) repairImpl(ctx context.Context) (*RepairResult, error) {
+	files, err := s.reader.ReadDir(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	parsed := parseValidFiles(files)
+
+	outline, buildFindings, err := s.builder.BuildOutline(parsed)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &RepairResult{}
+
+	// Collect unrepaired findings (e.g., duplicate SIDs)
+	result.Unrepaired = append(result.Unrepaired, buildFindings...)
+
+	// Repair missing doc types
+	for _, node := range outline.Nodes {
+		hasNotes := false
+		for _, doc := range node.Documents {
+			if doc.Type == domain.DocTypeNotes {
+				hasNotes = true
+			}
+		}
+		if !hasNotes {
+			filename := domain.GenerateFilename(node.MP.String(), node.SID, domain.DocTypeNotes, "")
+			if err := s.writer.WriteFile(ctx, filename, ""); err != nil {
+				return nil, err
+			}
+			result.Repairs = append(result.Repairs, RepairAction{
+				Type: domain.FindingMissingDocType,
+				New:  filename,
+			})
+		}
+	}
+
+	// Repair slug drift
+	if s.contentReader != nil {
+		for _, node := range outline.Nodes {
+			for _, doc := range node.Documents {
+				if doc.Type != domain.DocTypeDraft {
+					continue
+				}
+				content, err := s.contentReader.ReadFile(ctx, doc.Filename)
+				if err != nil {
+					continue
+				}
+				title, err := frontmatter.GetTitle(content)
+				if err != nil || title == "" {
+					continue
+				}
+				expectedSlug := slug.Slug(title)
+				pf, err := domain.ParseFilename(doc.Filename)
+				if err != nil {
+					continue
+				}
+				if pf.Slug != expectedSlug {
+					newFilename := domain.GenerateFilename(pf.MP, pf.SID, pf.DocType, expectedSlug)
+					if err := s.renamer.RenameFile(ctx, doc.Filename, newFilename); err != nil {
+						return nil, err
+					}
+					result.Repairs = append(result.Repairs, RepairAction{
+						Type: domain.FindingSlugDrift,
+						Old:  doc.Filename,
+						New:  newFilename,
+					})
+				}
+			}
+		}
+	}
+
+	return result, nil
 }
 
 // Load reads the project directory and builds an Outline without acquiring a lock.
@@ -361,6 +573,194 @@ func (s *OutlineService) Move(ctx context.Context, source, target domain.Selecto
 	}
 
 	return result, nil
+}
+
+// Compact renumbers nodes at consistent spacing, acquiring an advisory lock first.
+func (s *OutlineService) Compact(ctx context.Context, selector string, apply bool) (*CompactResult, error) {
+	if err := s.locker.TryLock(ctx); err != nil {
+		return nil, err
+	}
+	defer s.locker.Unlock()
+
+	return s.compactImpl(ctx, selector, apply)
+}
+
+// compactImpl performs the I/O operations for Compact.
+func (s *OutlineService) compactImpl(ctx context.Context, selector string, apply bool) (*CompactResult, error) {
+	files, err := s.reader.ReadDir(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	parsed := parseValidFiles(files)
+	renames := s.compactChildrenImpl(parsed, selector)
+
+	result := &CompactResult{Renames: renames}
+
+	if !apply {
+		return result, nil
+	}
+
+	if err := applyRenames(ctx, s.renamer, renames); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// compactChildrenImpl computes renames to compact children of parentMP at consistent spacing.
+func (s *OutlineService) compactChildrenImpl(parsed []domain.ParsedFile, parentMP string) map[string]string {
+	renames := map[string]string{}
+
+	// Find unique direct child MPs
+	seen := map[string]bool{}
+	var childMPs []string
+	for _, pf := range parsed {
+		if isDirectChild(pf, parentMP) && !seen[pf.MP] {
+			seen[pf.MP] = true
+			childMPs = append(childMPs, pf.MP)
+		}
+	}
+	sort.Strings(childMPs)
+
+	if len(childMPs) == 0 {
+		return renames
+	}
+
+	// Compute new numbers
+	newNums, err := domain.CompactNumbers(len(childMPs))
+	if err != nil {
+		return renames
+	}
+
+	// Build rename map for each child and its descendants
+	for i, oldChildMP := range childMPs {
+		newChildMP := buildChildMP(parentMP, newNums[i])
+
+		for _, pf := range parsed {
+			if pf.MP == oldChildMP || strings.HasPrefix(pf.MP, oldChildMP+"-") {
+				oldName := generateName(pf)
+				newMP := newChildMP + pf.MP[len(oldChildMP):]
+				newName := domain.GenerateFilename(newMP, pf.SID, pf.DocType, pf.Slug)
+				if oldName != newName {
+					renames[oldName] = newName
+				}
+			}
+		}
+
+		// Recursively compact the children of this child
+		childRenames := s.compactChildrenImpl(parsed, oldChildMP)
+		for old, newName := range childRenames {
+			// Apply the parent rename if the file was also renamed
+			if parentNew, ok := renames[old]; ok {
+				delete(renames, old)
+				renames[parentNew] = newName
+			} else {
+				renames[old] = newName
+			}
+		}
+	}
+
+	return renames
+}
+
+// Rename changes the title and slug of a node, acquiring an advisory lock first.
+func (s *OutlineService) Rename(ctx context.Context, selector, newTitle string, apply bool) (*RenameResult, error) {
+	if err := s.locker.TryLock(ctx); err != nil {
+		return nil, err
+	}
+	defer s.locker.Unlock()
+
+	return s.renameImpl(ctx, selector, newTitle, apply)
+}
+
+// renameImpl performs the I/O operations for Rename.
+func (s *OutlineService) renameImpl(ctx context.Context, selector, newTitle string, apply bool) (*RenameResult, error) {
+	files, err := s.reader.ReadDir(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	parsed := parseValidFiles(files)
+
+	nodeMP, nodeSID, err := findNodeMP(parsed, selector)
+	if err != nil {
+		return nil, err
+	}
+
+	// Find the draft file to get the old title
+	var draftFile domain.ParsedFile
+	var foundDraft bool
+	for _, pf := range parsed {
+		if pf.MP == nodeMP && pf.DocType == domain.DocTypeDraft {
+			draftFile = pf
+			foundDraft = true
+			break
+		}
+	}
+
+	var oldTitle string
+	if foundDraft {
+		oldFilename := generateName(draftFile)
+		content, err := s.contentReader.ReadFile(ctx, oldFilename)
+		if err == nil {
+			oldTitle, _ = frontmatter.GetTitle(content)
+		}
+	}
+
+	newSlug := slug.Slug(newTitle)
+	renames := map[string]string{}
+
+	for _, pf := range parsed {
+		if pf.MP == nodeMP && pf.DocType == domain.DocTypeDraft {
+			oldName := generateName(pf)
+			newName := domain.GenerateFilename(pf.MP, pf.SID, pf.DocType, newSlug)
+			if oldName != newName {
+				renames[oldName] = newName
+			}
+		}
+	}
+
+	result := &RenameResult{
+		OldTitle: oldTitle,
+		NewTitle: newTitle,
+		Renames:  renames,
+	}
+
+	if !apply {
+		return result, nil
+	}
+
+	if err := applyRenames(ctx, s.renamer, renames); err != nil {
+		return nil, err
+	}
+
+	// Update frontmatter title in the draft file and write to new filename
+	if foundDraft {
+		oldFilename := generateName(draftFile)
+		content, err := s.contentReader.ReadFile(ctx, oldFilename)
+		if err == nil {
+			updatedContent, err := frontmatter.SetTitle(content, newTitle)
+			if err == nil {
+				newFilename := domain.GenerateFilename(nodeMP, nodeSID, domain.DocTypeDraft, newSlug)
+				if writeErr := s.writer.WriteFile(ctx, newFilename, updatedContent); writeErr != nil {
+					return nil, writeErr
+				}
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// findNodeMP finds the MP and SID of the first node matching the given selector string.
+func findNodeMP(parsed []domain.ParsedFile, selector string) (string, string, error) {
+	for _, pf := range parsed {
+		if pf.MP == selector {
+			return pf.MP, pf.SID, nil
+		}
+	}
+	return "", "", ErrNodeNotFound
 }
 
 // findMissingDocTypeFindings checks each node for missing required document types.
