@@ -104,12 +104,12 @@ func writeJSONImpl(w io.Writer, v interface{}) {
 }
 
 // countBySeverity counts errors and warnings in a slice of findings.
-func countBySeverity(findings []CheckFinding) (errors, warnings int) {
+func countBySeverity(findings []CheckFinding) (errCount, warnCount int) {
 	for _, f := range findings {
 		if f.Severity == SeverityError {
-			errors++
+			errCount++
 		} else {
-			warnings++
+			warnCount++
 		}
 	}
 	return
