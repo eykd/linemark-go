@@ -199,42 +199,30 @@ func newTestRootMoveCmd(runner *mockMoveRunner, args ...string) (*cobra.Command,
 	return root, buf
 }
 
-func TestMoveCmd_HasJSONFlag(t *testing.T) {
-	runner := &mockMoveRunner{result: &MoveResult{}}
-	cmd := NewMoveCmd(runner)
-
-	flag := cmd.Flags().Lookup("json")
-	if flag == nil {
-		t.Fatal("move command should have --json flag")
+func TestMoveCmd_HasFlags(t *testing.T) {
+	tests := []struct {
+		name     string
+		flagName string
+		wantDef  string
+	}{
+		{"has --json flag", "json", "false"},
+		{"has --before flag", "before", ""},
+		{"has --after flag", "after", ""},
 	}
-	if flag.DefValue != "false" {
-		t.Errorf("--json default = %q, want %q", flag.DefValue, "false")
-	}
-}
 
-func TestMoveCmd_HasBeforeFlag(t *testing.T) {
-	runner := &mockMoveRunner{result: &MoveResult{}}
-	cmd := NewMoveCmd(runner)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &mockMoveRunner{result: &MoveResult{}}
+			cmd := NewMoveCmd(runner)
 
-	flag := cmd.Flags().Lookup("before")
-	if flag == nil {
-		t.Fatal("move command should have --before flag")
-	}
-	if flag.DefValue != "" {
-		t.Errorf("--before default = %q, want %q", flag.DefValue, "")
-	}
-}
-
-func TestMoveCmd_HasAfterFlag(t *testing.T) {
-	runner := &mockMoveRunner{result: &MoveResult{}}
-	cmd := NewMoveCmd(runner)
-
-	flag := cmd.Flags().Lookup("after")
-	if flag == nil {
-		t.Fatal("move command should have --after flag")
-	}
-	if flag.DefValue != "" {
-		t.Errorf("--after default = %q, want %q", flag.DefValue, "")
+			flag := cmd.Flags().Lookup(tt.flagName)
+			if flag == nil {
+				t.Fatalf("move command should have --%s flag", tt.flagName)
+			}
+			if flag.DefValue != tt.wantDef {
+				t.Errorf("--%s default = %q, want %q", tt.flagName, flag.DefValue, tt.wantDef)
+			}
+		})
 	}
 }
 
