@@ -1,0 +1,21 @@
+;===============================================================
+; Author renames a node.
+;===============================================================
+GIVEN an outline with a node titled "Chapter One".
+
+WHEN the author renames it to "The Beginning".
+
+THEN the node's title becomes "The Beginning".
+THEN all filenames for the node reflect the new slugified title.
+THEN the node's stable identifier is unchanged.
+THEN the node's position in the outline is unchanged.
+
+
+;===============================================================
+; Renaming updates the canonical title in the draft.
+;===============================================================
+GIVEN a node titled "Old Title".
+
+WHEN the author renames it to "New Title".
+
+THEN the draft document's stored title reads "New Title".

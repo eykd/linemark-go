@@ -1,0 +1,30 @@
+;===============================================================
+; Two mutating commands cannot run simultaneously.
+;===============================================================
+GIVEN a mutating command is already running.
+
+WHEN a second mutating command is started.
+
+THEN the second command fails immediately with a clear error.
+THEN the first command completes successfully.
+
+
+;===============================================================
+; Read-only commands are not blocked by mutating commands.
+;===============================================================
+GIVEN a mutating command is running.
+
+WHEN a read-only command is started.
+
+THEN the read-only command completes without waiting.
+
+
+;===============================================================
+; The lock is released when a command fails.
+;===============================================================
+GIVEN a mutating command encounters an error mid-operation.
+
+WHEN the command exits.
+
+THEN the advisory lock is released.
+THEN subsequent mutating commands can proceed.

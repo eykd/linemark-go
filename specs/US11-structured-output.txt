@@ -1,0 +1,35 @@
+;===============================================================
+; All commands support structured output.
+;===============================================================
+GIVEN a populated outline.
+
+WHEN the author runs any command requesting structured output.
+
+THEN the output is valid parseable structured data.
+
+
+;===============================================================
+; Dry-run with structured output shows planned changes.
+;===============================================================
+GIVEN an outline with nodes.
+
+WHEN the author requests a dry-run of a mutating command with structured output.
+
+THEN the planned changes are shown as structured data.
+THEN no files are modified.
+
+
+;===============================================================
+; Exit codes are consistent across commands.
+;===============================================================
+GIVEN a successful command execution.
+
+THEN the exit status is 0.
+
+GIVEN a command that encounters an error.
+
+THEN the exit status is 1.
+
+GIVEN a validation command that finds issues.
+
+THEN the exit status is 2.
