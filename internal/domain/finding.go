@@ -10,19 +10,22 @@ const (
 	SeverityWarning FindingSeverity = "warning"
 )
 
+// FindingType identifies the kind of issue found.
+type FindingType string
+
 // Finding type constants identify the kind of issue found.
 const (
-	FindingInvalidFilename      = "invalid_filename"
-	FindingDuplicateSID         = "duplicate_sid"
-	FindingSlugDrift            = "slug_drift"
-	FindingMissingDocType       = "missing_doc_type"
-	FindingMalformedFrontmatter = "malformed_frontmatter"
-	FindingOrphanedReservation  = "orphaned_reservation"
+	FindingInvalidFilename      FindingType = "invalid_filename"
+	FindingDuplicateSID         FindingType = "duplicate_sid"
+	FindingSlugDrift            FindingType = "slug_drift"
+	FindingMissingDocType       FindingType = "missing_doc_type"
+	FindingMalformedFrontmatter FindingType = "malformed_frontmatter"
+	FindingOrphanedReservation  FindingType = "orphaned_reservation"
 )
 
 // Finding represents a validation issue discovered during a check operation.
 type Finding struct {
-	Type     string
+	Type     FindingType
 	Severity FindingSeverity
 	Message  string
 	Path     string

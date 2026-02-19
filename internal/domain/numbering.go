@@ -2,7 +2,7 @@ package domain
 
 import (
 	"errors"
-	"sort"
+	"slices"
 )
 
 const (
@@ -45,9 +45,8 @@ func tierOf(n int) int {
 }
 
 func sortedCopy(occupied []int) []int {
-	sorted := make([]int, len(occupied))
-	copy(sorted, occupied)
-	sort.Ints(sorted)
+	sorted := slices.Clone(occupied)
+	slices.Sort(sorted)
 	return sorted
 }
 
@@ -79,7 +78,7 @@ func SiblingNumberBefore(occupied []int, target int) (int, error) {
 		return 0, ErrMaxSiblingsReached
 	}
 
-	idx := sort.SearchInts(sorted, target)
+	idx, _ := slices.BinarySearch(sorted, target)
 
 	var predecessor int
 	if idx > 0 {
@@ -101,7 +100,7 @@ func SiblingNumberAfter(occupied []int, target int) (int, error) {
 		return 0, ErrMaxSiblingsReached
 	}
 
-	idx := sort.SearchInts(sorted, target)
+	idx, _ := slices.BinarySearch(sorted, target)
 
 	var successor int
 	if idx < len(sorted)-1 {

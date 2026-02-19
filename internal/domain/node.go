@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -47,16 +48,12 @@ func (mp MaterializedPath) Parent() (MaterializedPath, bool) {
 	if len(mp.segments) <= 1 {
 		return MaterializedPath{}, false
 	}
-	parent := make([]string, len(mp.segments)-1)
-	copy(parent, mp.segments)
-	return MaterializedPath{segments: parent}, true
+	return MaterializedPath{segments: slices.Clone(mp.segments[:len(mp.segments)-1])}, true
 }
 
 // Segments returns a copy of the path segments.
 func (mp MaterializedPath) Segments() []string {
-	result := make([]string, len(mp.segments))
-	copy(result, mp.segments)
-	return result
+	return slices.Clone(mp.segments)
 }
 
 // Document represents a file attached to a node.

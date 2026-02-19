@@ -48,8 +48,8 @@ func TestFindingSeverity_Values(t *testing.T) {
 func TestFindingType_Constants(t *testing.T) {
 	tests := []struct {
 		name string
-		ft   string
-		want string
+		ft   FindingType
+		want FindingType
 	}{
 		{"invalid filename", FindingInvalidFilename, "invalid_filename"},
 		{"duplicate SID", FindingDuplicateSID, "duplicate_sid"},
