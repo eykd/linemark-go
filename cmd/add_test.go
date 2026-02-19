@@ -13,17 +13,21 @@ import (
 
 // mockAddRunner is a test double for AddRunner.
 type mockAddRunner struct {
-	result      *AddResult
-	err         error
-	calledTitle string
-	applyPassed bool
-	called      bool
+	result          *AddResult
+	err             error
+	calledTitle     string
+	applyPassed     bool
+	called          bool
+	calledChildOf   string
+	calledSiblingOf string
 }
 
-func (m *mockAddRunner) Add(ctx context.Context, title string, apply bool) (*AddResult, error) {
+func (m *mockAddRunner) Add(ctx context.Context, title string, apply bool, childOf string, siblingOf string) (*AddResult, error) {
 	m.called = true
 	m.calledTitle = title
 	m.applyPassed = apply
+	m.calledChildOf = childOf
+	m.calledSiblingOf = siblingOf
 	return m.result, m.err
 }
 
@@ -498,5 +502,109 @@ func TestAddResult_FilesPlanned_JSONTag(t *testing.T) {
 	files := parsed["files_planned"].([]interface{})
 	if len(files) != 2 {
 		t.Errorf("files_planned count = %d, want 2", len(files))
+	}
+}
+
+func TestAddCmd_HasPlacementFlags(t *testing.T) {
+	tests := []struct {
+		name     string
+		flagName string
+	}{
+		{"has --child-of flag", "child-of"},
+		{"has --sibling-of flag", "sibling-of"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &mockAddRunner{result: &AddResult{}}
+			cmd := NewAddCmd(runner)
+
+			flag := cmd.Flags().Lookup(tt.flagName)
+			if flag == nil {
+				t.Fatalf("add command should have --%s flag", tt.flagName)
+			}
+		})
+	}
+}
+
+func TestAddCmd_PlacementFlagPassthrough(t *testing.T) {
+	tests := []struct {
+		name          string
+		args          []string
+		wantChildOf   string
+		wantSiblingOf string
+	}{
+		{
+			name:        "child-of with MP selector",
+			args:        []string{"--child-of", "100", "Chapter One"},
+			wantChildOf: "100",
+		},
+		{
+			name:          "sibling-of with MP selector",
+			args:          []string{"--sibling-of", "200", "Chapter Two"},
+			wantSiblingOf: "200",
+		},
+		{
+			name:        "child-of with explicit SID selector",
+			args:        []string{"--child-of", "sid:A3F7c9Qx7Lm2", "Scene One"},
+			wantChildOf: "sid:A3F7c9Qx7Lm2",
+		},
+		{
+			name:          "sibling-of with explicit SID selector",
+			args:          []string{"--sibling-of", "sid:B8kQ2mNp4Rs1", "Scene Two"},
+			wantSiblingOf: "sid:B8kQ2mNp4Rs1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &mockAddRunner{result: chapterOneResult()}
+			cmd, _ := newTestAddCmd(runner, tt.args...)
+
+			err := cmd.Execute()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if runner.calledChildOf != tt.wantChildOf {
+				t.Errorf("childOf = %q, want %q", runner.calledChildOf, tt.wantChildOf)
+			}
+			if runner.calledSiblingOf != tt.wantSiblingOf {
+				t.Errorf("siblingOf = %q, want %q", runner.calledSiblingOf, tt.wantSiblingOf)
+			}
+		})
+	}
+}
+
+func TestAddCmd_PlacementFlagsMutuallyExclusive(t *testing.T) {
+	runner := &mockAddRunner{result: chapterOneResult()}
+	cmd, _ := newTestAddCmd(runner, "--child-of", "100", "--sibling-of", "200", "Chapter One")
+
+	err := cmd.Execute()
+
+	if err == nil {
+		t.Fatal("expected error when both --child-of and --sibling-of are specified")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("error should mention mutual exclusivity, got: %v", err)
+	}
+	if runner.called {
+		t.Error("runner should not be called when flags are mutually exclusive")
+	}
+}
+
+func TestAddCmd_PlacementDefaultsEmpty(t *testing.T) {
+	runner := &mockAddRunner{result: chapterOneResult()}
+	cmd, _ := newTestAddCmd(runner, "Chapter One")
+
+	err := cmd.Execute()
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if runner.calledChildOf != "" {
+		t.Errorf("childOf should be empty by default, got %q", runner.calledChildOf)
+	}
+	if runner.calledSiblingOf != "" {
+		t.Errorf("siblingOf should be empty by default, got %q", runner.calledSiblingOf)
 	}
 }

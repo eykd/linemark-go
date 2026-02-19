@@ -24,12 +24,14 @@ type AddResult struct {
 
 // AddRunner defines the interface for running the add operation.
 type AddRunner interface {
-	Add(ctx context.Context, title string, apply bool) (*AddResult, error)
+	Add(ctx context.Context, title string, apply bool, childOf string, siblingOf string) (*AddResult, error)
 }
 
 // NewAddCmd creates the add command with the given runner.
 func NewAddCmd(runner AddRunner) *cobra.Command {
 	var jsonOutput bool
+	var childOf string
+	var siblingOf string
 
 	cmd := &cobra.Command{
 		Use:          "add <title>",
@@ -37,8 +39,12 @@ func NewAddCmd(runner AddRunner) *cobra.Command {
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if childOf != "" && siblingOf != "" {
+				return fmt.Errorf("--child-of and --sibling-of are mutually exclusive")
+			}
+
 			isDryRun := GetDryRun()
-			result, err := runner.Add(cmd.Context(), args[0], !isDryRun)
+			result, err := runner.Add(cmd.Context(), args[0], !isDryRun, childOf, siblingOf)
 			if err != nil {
 				return err
 			}
@@ -59,6 +65,8 @@ func NewAddCmd(runner AddRunner) *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output results as JSON")
+	cmd.Flags().StringVar(&childOf, "child-of", "", "Add as last child of the specified node")
+	cmd.Flags().StringVar(&siblingOf, "sibling-of", "", "Add immediately after the specified node")
 
 	return cmd
 }
