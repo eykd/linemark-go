@@ -515,46 +515,6 @@ func TestMoveResult_MultipleRenames(t *testing.T) {
 	}
 }
 
-func TestMoveCmd_ForwardsBeforeFlag(t *testing.T) {
-	runner := &mockMoveRunner{result: moveFixture()}
-	cmd, _ := newTestMoveCmd(runner, "001-200", "--to", "300", "--before", "400")
-
-	err := cmd.Execute()
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !runner.called {
-		t.Fatal("runner should be called")
-	}
-	if runner.before != "400" {
-		t.Errorf("before = %q, want %q", runner.before, "400")
-	}
-	if runner.after != "" {
-		t.Errorf("after = %q, want empty", runner.after)
-	}
-}
-
-func TestMoveCmd_ForwardsAfterFlag(t *testing.T) {
-	runner := &mockMoveRunner{result: moveFixture()}
-	cmd, _ := newTestMoveCmd(runner, "001-200", "--to", "300", "--after", "500")
-
-	err := cmd.Execute()
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !runner.called {
-		t.Fatal("runner should be called")
-	}
-	if runner.after != "500" {
-		t.Errorf("after = %q, want %q", runner.after, "500")
-	}
-	if runner.before != "" {
-		t.Errorf("before = %q, want empty", runner.before)
-	}
-}
-
 func TestMoveCmd_ForwardsPlacementFlags(t *testing.T) {
 	tests := []struct {
 		name       string
