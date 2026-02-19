@@ -61,7 +61,7 @@ func BuildOutline(files []ParsedFile) (Outline, []Finding, error) {
 				Type:     f.DocType,
 				Filename: GenerateFilename(f.MP, f.SID, f.DocType, f.Slug),
 			})
-			if f.DocType == "draft" {
+			if f.DocType == DocTypeDraft {
 				title = f.Slug
 			}
 		}

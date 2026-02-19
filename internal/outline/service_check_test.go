@@ -100,6 +100,23 @@ func TestOutlineService_Check_PropagatesReaderError(t *testing.T) {
 	}
 }
 
+func TestOutlineService_Check_PropagatesBuildOutlineError(t *testing.T) {
+	reader := &fakeDirectoryReader{
+		files: []string{"001_ABCD1234EF_draft_hello.md"},
+	}
+	builder := &fakeOutlineBuilder{
+		err: fmt.Errorf("corrupt outline data"),
+	}
+	svc := NewOutlineService(reader, nil, &mockLocker{}, nil)
+	svc.builder = builder
+
+	_, err := svc.Check(context.Background())
+
+	if err == nil {
+		t.Fatal("expected error from BuildOutline")
+	}
+}
+
 func TestOutlineService_Check_FindingSeverities(t *testing.T) {
 	tests := []struct {
 		name         string

@@ -23,6 +23,12 @@ const (
 	FindingOrphanedReservation  FindingType = "orphaned_reservation"
 )
 
+// Document type constants identify the standard document types.
+const (
+	DocTypeDraft = "draft"
+	DocTypeNotes = "notes"
+)
+
 // Finding represents a validation issue discovered during a check operation.
 type Finding struct {
 	Type     FindingType

@@ -155,22 +155,7 @@ func (s *OutlineService) Check(ctx context.Context) (*CheckResult, error) {
 		}
 	}
 
-	var parsed []domain.ParsedFile
-	var findings []domain.Finding
-
-	for _, f := range files {
-		pf, parseErr := domain.ParseFilename(f)
-		if parseErr != nil {
-			findings = append(findings, domain.Finding{
-				Type:     domain.FindingInvalidFilename,
-				Severity: domain.SeverityWarning,
-				Message:  fmt.Sprintf("invalid filename: %s", f),
-				Path:     f,
-			})
-			continue
-		}
-		parsed = append(parsed, pf)
-	}
+	parsed, findings := parseFilesWithFindings(files)
 
 	outline, buildFindings, err := s.builder.BuildOutline(parsed)
 	if err != nil {
@@ -183,10 +168,10 @@ func (s *OutlineService) Check(ctx context.Context) (*CheckResult, error) {
 		hasDraft := false
 		hasNotes := false
 		for _, doc := range node.Documents {
-			if doc.Type == "draft" {
+			if doc.Type == domain.DocTypeDraft {
 				hasDraft = true
 			}
-			if doc.Type == "notes" {
+			if doc.Type == domain.DocTypeNotes {
 				hasNotes = true
 			}
 		}
@@ -226,22 +211,7 @@ func (s *OutlineService) Load(ctx context.Context) (*LoadResult, error) {
 		return nil, err
 	}
 
-	var parsed []domain.ParsedFile
-	var findings []domain.Finding
-
-	for _, f := range files {
-		pf, parseErr := domain.ParseFilename(f)
-		if parseErr != nil {
-			findings = append(findings, domain.Finding{
-				Type:     domain.FindingInvalidFilename,
-				Severity: domain.SeverityWarning,
-				Message:  fmt.Sprintf("invalid filename: %s", f),
-				Path:     f,
-			})
-			continue
-		}
-		parsed = append(parsed, pf)
-	}
+	parsed, findings := parseFilesWithFindings(files)
 
 	outline, buildFindings, err := s.builder.BuildOutline(parsed)
 	if err != nil {
@@ -412,27 +382,36 @@ func (s *OutlineService) Move(ctx context.Context, source, target domain.Selecto
 		return result, nil
 	}
 
-	var completed [][2]string
-	for oldName, newName := range renames {
-		if err := s.renamer.RenameFile(ctx, oldName, newName); err != nil {
-			rollbackRenames(ctx, s.renamer, completed)
-			return nil, fmt.Errorf("rename %s -> %s: %w", oldName, newName, err)
-		}
-		completed = append(completed, [2]string{oldName, newName})
+	if err := applyRenames(ctx, s.renamer, renames); err != nil {
+		return nil, err
 	}
 
 	return result, nil
 }
 
-// parseValidFiles parses filenames, silently skipping invalid ones.
-func parseValidFiles(files []string) []domain.ParsedFile {
+// parseFilesWithFindings parses filenames, returning parsed files and findings for invalid ones.
+func parseFilesWithFindings(files []string) ([]domain.ParsedFile, []domain.Finding) {
 	var parsed []domain.ParsedFile
+	var findings []domain.Finding
 	for _, f := range files {
 		pf, err := domain.ParseFilename(f)
-		if err == nil {
-			parsed = append(parsed, pf)
+		if err != nil {
+			findings = append(findings, domain.Finding{
+				Type:     domain.FindingInvalidFilename,
+				Severity: domain.SeverityWarning,
+				Message:  fmt.Sprintf("invalid filename: %s", f),
+				Path:     f,
+			})
+			continue
 		}
+		parsed = append(parsed, pf)
 	}
+	return parsed, findings
+}
+
+// parseValidFiles parses filenames, silently skipping invalid ones.
+func parseValidFiles(files []string) []domain.ParsedFile {
+	parsed, _ := parseFilesWithFindings(files)
 	return parsed
 }
 
@@ -544,13 +523,8 @@ func (s *OutlineService) deleteFiles(ctx context.Context, toDelete []string, toR
 
 	// Perform renames first (before deletes)
 	if s.renamer != nil {
-		var completed [][2]string
-		for oldName, newName := range toRename {
-			if err := s.renamer.RenameFile(ctx, oldName, newName); err != nil {
-				rollbackRenames(ctx, s.renamer, completed)
-				return nil, fmt.Errorf("rename %s -> %s: %w", oldName, newName, err)
-			}
-			completed = append(completed, [2]string{oldName, newName})
+		if err := applyRenames(ctx, s.renamer, toRename); err != nil {
+			return nil, err
 		}
 	}
 
@@ -564,6 +538,19 @@ func (s *OutlineService) deleteFiles(ctx context.Context, toDelete []string, toR
 	}
 
 	return result, nil
+}
+
+// applyRenames executes a set of renames with rollback on failure.
+func applyRenames(ctx context.Context, renamer FileRenamer, renames map[string]string) error {
+	var completed [][2]string
+	for oldName, newName := range renames {
+		if err := renamer.RenameFile(ctx, oldName, newName); err != nil {
+			rollbackRenames(ctx, renamer, completed)
+			return fmt.Errorf("rename %s -> %s: %w", oldName, newName, err)
+		}
+		completed = append(completed, [2]string{oldName, newName})
+	}
+	return nil
 }
 
 // rollbackRenames reverses already-completed renames on a best-effort basis.
@@ -600,14 +587,14 @@ func (s *OutlineService) Add(ctx context.Context, title, parentMP string) (*AddR
 	mp := buildChildMP(parentMP, nextNum)
 
 	slugStr := slug.Slug(title)
-	filename := domain.GenerateFilename(mp, sid, "draft", slugStr)
+	filename := domain.GenerateFilename(mp, sid, domain.DocTypeDraft, slugStr)
 	content := formatFrontmatter(title)
 
 	if err := s.writer.WriteFile(ctx, filename, content); err != nil {
 		return nil, err
 	}
 
-	notesFilename := domain.GenerateFilename(mp, sid, "notes", "")
+	notesFilename := domain.GenerateFilename(mp, sid, domain.DocTypeNotes, "")
 	if err := s.writer.WriteFile(ctx, notesFilename, ""); err != nil {
 		return nil, err
 	}
