@@ -7,26 +7,6 @@ import (
 	"testing"
 )
 
-// --- Global --dry-run flag tests ---
-
-func TestRootCommandDryRunFlag(t *testing.T) {
-	cmd := NewRootCmd()
-
-	flag := cmd.PersistentFlags().Lookup("dry-run")
-	if flag == nil {
-		t.Fatal("expected --dry-run persistent flag to exist")
-	}
-	if flag.DefValue != "false" {
-		t.Errorf("--dry-run default = %q, want %q", flag.DefValue, "false")
-	}
-}
-
-func TestGetDryRun(t *testing.T) {
-	if GetDryRun() {
-		t.Error("GetDryRun() should default to false")
-	}
-}
-
 // --- Planned field on result types ---
 
 func TestCompactResult_PlannedField(t *testing.T) {
