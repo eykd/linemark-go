@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 
@@ -44,22 +43,19 @@ func NewCompactCmd(runner CompactRunner) *cobra.Command {
 				selector = args[0]
 			}
 
-			apply := applyFlag
-			if GetDryRun() {
-				apply = false
-			}
-
-			result, err := runner.Compact(cmd.Context(), selector, apply)
+			isDryRun := GetDryRun()
+			result, err := runner.Compact(cmd.Context(), selector, applyFlag && !isDryRun)
 			if err != nil {
 				return err
 			}
 
-			if GetDryRun() {
+			if isDryRun {
 				result.Planned = true
 			}
 
 			if jsonOutput || GetJSON() {
-				return writeCompactJSON(cmd.OutOrStdout(), result)
+				writeJSON(cmd.OutOrStdout(), result)
+				return nil
 			}
 			return writeCompactHuman(cmd.OutOrStdout(), result)
 		},
@@ -69,10 +65,6 @@ func NewCompactCmd(runner CompactRunner) *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output results as JSON")
 
 	return cmd
-}
-
-func writeCompactJSON(w io.Writer, result *CompactResult) error {
-	return json.NewEncoder(w).Encode(result)
 }
 
 func writeCompactHuman(w io.Writer, result *CompactResult) error {
