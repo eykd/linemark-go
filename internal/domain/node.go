@@ -9,7 +9,7 @@ import (
 // ErrInvalidPath is returned when a materialized path string is invalid.
 var ErrInvalidPath = errors.New("invalid materialized path")
 
-var segmentRegex = regexp.MustCompile(`^\d{3}$`)
+var segmentRegex = regexp.MustCompile(`^(\d{3}|[1-9]\d?)$`)
 
 // MaterializedPath is a value object representing a node's position in the tree.
 type MaterializedPath struct {

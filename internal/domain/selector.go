@@ -101,6 +101,11 @@ func (s Selector) Value() string {
 	return s.value
 }
 
+// Explicit returns whether the selector was explicitly prefixed (e.g., "mp:" or "sid:").
+func (s Selector) Explicit() bool {
+	return s.explicit
+}
+
 // String returns the string representation, including prefix if explicitly provided.
 func (s Selector) String() string {
 	if s.explicit {
