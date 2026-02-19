@@ -267,18 +267,13 @@ func (s *OutlineService) Delete(ctx context.Context, sel domain.Selector, mode d
 		return nil, err
 	}
 
-	// Collect files belonging to the target node
+	// Collect target and descendant files in a single pass.
 	var targetFiles []string
+	var descendantFiles []domain.ParsedFile
 	for _, pf := range parsed {
 		if pf.MP == targetMP {
 			targetFiles = append(targetFiles, generateName(pf))
-		}
-	}
-
-	// Collect descendant files (any file whose MP starts with targetMP-)
-	var descendantFiles []domain.ParsedFile
-	for _, pf := range parsed {
-		if strings.HasPrefix(pf.MP, targetMP+"-") {
+		} else if strings.HasPrefix(pf.MP, targetMP+"-") {
 			descendantFiles = append(descendantFiles, pf)
 		}
 	}

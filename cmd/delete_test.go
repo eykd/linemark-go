@@ -19,12 +19,14 @@ type mockDeleteRunner struct {
 	err      error
 	called   bool
 	selector string
+	mode     domain.DeleteMode
 	apply    bool
 }
 
 func (m *mockDeleteRunner) Delete(ctx context.Context, selector string, mode domain.DeleteMode, apply bool) (*DeleteResult, error) {
 	m.called = true
 	m.selector = selector
+	m.mode = mode
 	m.apply = apply
 	return m.result, m.err
 }

@@ -1,47 +1,15 @@
 package cmd
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/eykd/linemark-go/internal/domain"
-	"github.com/spf13/cobra"
 )
 
-// mockDeleteModeRunner captures the delete mode passed by the command.
-type mockDeleteModeRunner struct {
-	result   *DeleteResult
-	err      error
-	called   bool
-	selector string
-	mode     domain.DeleteMode
-	apply    bool
-}
-
-func (m *mockDeleteModeRunner) Delete(ctx context.Context, selector string, mode domain.DeleteMode, apply bool) (*DeleteResult, error) {
-	m.called = true
-	m.selector = selector
-	m.mode = mode
-	m.apply = apply
-	return m.result, m.err
-}
-
-func newTestDeleteModeCmd(runner *mockDeleteModeRunner, args ...string) (*cobra.Command, *bytes.Buffer) {
-	cmd := NewDeleteCmd(runner)
-	if len(args) > 0 {
-		cmd.SetArgs(args)
-	}
-	buf := new(bytes.Buffer)
-	cmd.SetOut(buf)
-	cmd.SetErr(new(bytes.Buffer))
-	return cmd, buf
-}
-
 func TestDeleteCmd_HasRecursiveFlag(t *testing.T) {
-	runner := &mockDeleteModeRunner{result: &DeleteResult{}}
+	runner := &mockDeleteRunner{result: &DeleteResult{}}
 	cmd := NewDeleteCmd(runner)
 
 	flag := cmd.Flags().Lookup("recursive")
@@ -57,7 +25,7 @@ func TestDeleteCmd_HasRecursiveFlag(t *testing.T) {
 }
 
 func TestDeleteCmd_HasPromoteFlag(t *testing.T) {
-	runner := &mockDeleteModeRunner{result: &DeleteResult{}}
+	runner := &mockDeleteRunner{result: &DeleteResult{}}
 	cmd := NewDeleteCmd(runner)
 
 	flag := cmd.Flags().Lookup("promote")
@@ -73,8 +41,8 @@ func TestDeleteCmd_HasPromoteFlag(t *testing.T) {
 }
 
 func TestDeleteCmd_RecursiveAndPromoteMutuallyExclusive(t *testing.T) {
-	runner := &mockDeleteModeRunner{result: &DeleteResult{}}
-	cmd, _ := newTestDeleteModeCmd(runner, "--recursive", "--promote", "001-200")
+	runner := &mockDeleteRunner{result: &DeleteResult{}}
+	cmd, _ := newTestDeleteCmd(runner, "--recursive", "--promote", "001-200")
 
 	err := cmd.Execute()
 
@@ -104,8 +72,8 @@ func TestDeleteCmd_PassesDeleteMode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			runner := &mockDeleteModeRunner{result: &DeleteResult{}}
-			cmd, _ := newTestDeleteModeCmd(runner, tt.args...)
+			runner := &mockDeleteRunner{result: &DeleteResult{}}
+			cmd, _ := newTestDeleteCmd(runner, tt.args...)
 
 			err := cmd.Execute()
 
@@ -134,8 +102,8 @@ func TestDeleteCmd_RecursiveDeleteJSONOutput(t *testing.T) {
 		},
 		SIDsPreserved: []string{"SID001AABB", "SID002CCDD", "SID003EEFF"},
 	}
-	runner := &mockDeleteModeRunner{result: result}
-	cmd, buf := newTestDeleteModeCmd(runner, "--json", "--recursive", "100")
+	runner := &mockDeleteRunner{result: result}
+	cmd, buf := newTestDeleteCmd(runner, "--json", "--recursive", "100")
 
 	err := cmd.Execute()
 
@@ -169,8 +137,8 @@ func TestDeleteCmd_PromoteDeleteJSONOutput(t *testing.T) {
 		},
 		SIDsPreserved: []string{"SID001AABB"},
 	}
-	runner := &mockDeleteModeRunner{result: result}
-	cmd, buf := newTestDeleteModeCmd(runner, "--json", "--promote", "100")
+	runner := &mockDeleteRunner{result: result}
+	cmd, buf := newTestDeleteCmd(runner, "--json", "--promote", "100")
 
 	err := cmd.Execute()
 
@@ -201,8 +169,8 @@ func TestDeleteCmd_PromoteHumanOutput_ShowsRenames(t *testing.T) {
 		},
 		SIDsPreserved: []string{"SID001AABB"},
 	}
-	runner := &mockDeleteModeRunner{result: result}
-	cmd, buf := newTestDeleteModeCmd(runner, "--promote", "100")
+	runner := &mockDeleteRunner{result: result}
+	cmd, buf := newTestDeleteCmd(runner, "--promote", "100")
 
 	err := cmd.Execute()
 
