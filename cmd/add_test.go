@@ -27,6 +27,21 @@ func (m *mockAddRunner) Add(ctx context.Context, title string, apply bool) (*Add
 	return m.result, m.err
 }
 
+// chapterOneResult returns a standard test fixture for add results.
+func chapterOneResult() *AddResult {
+	return &AddResult{
+		Node: AddNodeInfo{
+			MP:    "100",
+			SID:   "A3F7c9Qx7Lm2",
+			Title: "Chapter One",
+		},
+		FilesCreated: []string{
+			"100_A3F7c9Qx7Lm2_draft_chapter-one.md",
+			"100_A3F7c9Qx7Lm2_notes.md",
+		},
+	}
+}
+
 // newTestAddCmd creates an add command wired to the given runner,
 // capturing stdout into the returned buffer.
 func newTestAddCmd(runner *mockAddRunner, args ...string) (*cobra.Command, *bytes.Buffer) {
@@ -53,46 +68,31 @@ func TestAddCmd_RegisteredWithRoot(t *testing.T) {
 	}
 }
 
-func TestAddCmd_RequiresTitle(t *testing.T) {
-	runner := &mockAddRunner{
-		result: &AddResult{},
+func TestAddCmd_ArgumentValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"requires title", nil},
+		{"rejects too many args", []string{"Title One", "Title Two"}},
 	}
-	cmd, _ := newTestAddCmd(runner)
 
-	err := cmd.Execute()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &mockAddRunner{result: &AddResult{}}
+			cmd, _ := newTestAddCmd(runner, tt.args...)
 
-	if err == nil {
-		t.Fatal("expected error when no title argument provided")
-	}
-}
+			err := cmd.Execute()
 
-func TestAddCmd_RejectsTooManyArgs(t *testing.T) {
-	runner := &mockAddRunner{
-		result: &AddResult{},
-	}
-	cmd, _ := newTestAddCmd(runner, "Title One", "Title Two")
-
-	err := cmd.Execute()
-
-	if err == nil {
-		t.Fatal("expected error when too many arguments provided")
+			if err == nil {
+				t.Fatal("expected error")
+			}
+		})
 	}
 }
 
-func TestAddCmd_PassesTitleToRunner(t *testing.T) {
-	runner := &mockAddRunner{
-		result: &AddResult{
-			Node: AddNodeInfo{
-				MP:    "100",
-				SID:   "A3F7c9Qx7Lm2",
-				Title: "Chapter One",
-			},
-			FilesCreated: []string{
-				"100_A3F7c9Qx7Lm2_draft_chapter-one.md",
-				"100_A3F7c9Qx7Lm2_notes.md",
-			},
-		},
-	}
+func TestAddCmd_RunnerInteraction(t *testing.T) {
+	runner := &mockAddRunner{result: chapterOneResult()}
 	cmd, _ := newTestAddCmd(runner, "Chapter One")
 
 	err := cmd.Execute()
@@ -100,57 +100,11 @@ func TestAddCmd_PassesTitleToRunner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if !runner.called {
+		t.Error("runner should be called on execute")
+	}
 	if runner.calledTitle != "Chapter One" {
 		t.Errorf("title = %q, want %q", runner.calledTitle, "Chapter One")
-	}
-}
-
-func TestAddCmd_ServiceCalled(t *testing.T) {
-	runner := &mockAddRunner{
-		result: &AddResult{
-			Node: AddNodeInfo{
-				MP:    "100",
-				SID:   "A3F7c9Qx7Lm2",
-				Title: "My Novel",
-			},
-			FilesCreated: []string{
-				"100_A3F7c9Qx7Lm2_draft_my-novel.md",
-				"100_A3F7c9Qx7Lm2_notes.md",
-			},
-		},
-	}
-	cmd, _ := newTestAddCmd(runner, "My Novel")
-
-	err := cmd.Execute()
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !runner.called {
-		t.Error("add runner should be called on execute")
-	}
-}
-
-func TestAddCmd_ApplyIsTrueByDefault(t *testing.T) {
-	runner := &mockAddRunner{
-		result: &AddResult{
-			Node: AddNodeInfo{
-				MP:    "100",
-				SID:   "A3F7c9Qx7Lm2",
-				Title: "My Novel",
-			},
-			FilesCreated: []string{
-				"100_A3F7c9Qx7Lm2_draft_my-novel.md",
-				"100_A3F7c9Qx7Lm2_notes.md",
-			},
-		},
-	}
-	cmd, _ := newTestAddCmd(runner, "My Novel")
-
-	err := cmd.Execute()
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
 	}
 	if !runner.applyPassed {
 		t.Error("apply should be true by default (no --dry-run)")
@@ -171,19 +125,7 @@ func TestAddCmd_HasJSONFlag(t *testing.T) {
 }
 
 func TestAddCmd_JSONOutput(t *testing.T) {
-	runner := &mockAddRunner{
-		result: &AddResult{
-			Node: AddNodeInfo{
-				MP:    "100",
-				SID:   "A3F7c9Qx7Lm2",
-				Title: "Chapter One",
-			},
-			FilesCreated: []string{
-				"100_A3F7c9Qx7Lm2_draft_chapter-one.md",
-				"100_A3F7c9Qx7Lm2_notes.md",
-			},
-		},
-	}
+	runner := &mockAddRunner{result: chapterOneResult()}
 	cmd, buf := newTestAddCmd(runner, "--json", "Chapter One")
 
 	err := cmd.Execute()
@@ -277,19 +219,7 @@ func TestAddCmd_JSONOutput_TwoFilesCreated(t *testing.T) {
 }
 
 func TestAddCmd_HumanReadableOutput(t *testing.T) {
-	runner := &mockAddRunner{
-		result: &AddResult{
-			Node: AddNodeInfo{
-				MP:    "100",
-				SID:   "A3F7c9Qx7Lm2",
-				Title: "Chapter One",
-			},
-			FilesCreated: []string{
-				"100_A3F7c9Qx7Lm2_draft_chapter-one.md",
-				"100_A3F7c9Qx7Lm2_notes.md",
-			},
-		},
-	}
+	runner := &mockAddRunner{result: chapterOneResult()}
 	cmd, buf := newTestAddCmd(runner, "Chapter One")
 
 	err := cmd.Execute()
@@ -300,42 +230,15 @@ func TestAddCmd_HumanReadableOutput(t *testing.T) {
 
 	output := buf.String()
 	if !strings.Contains(output, "100_A3F7c9Qx7Lm2_draft_chapter-one.md") {
-		t.Errorf("human output should contain draft filename, got: %q", output)
+		t.Errorf("output should contain draft filename, got: %q", output)
 	}
 	if !strings.Contains(output, "100_A3F7c9Qx7Lm2_notes.md") {
-		t.Errorf("human output should contain notes filename, got: %q", output)
-	}
-}
-
-func TestAddCmd_HumanReadableOutput_NotJSON(t *testing.T) {
-	runner := &mockAddRunner{
-		result: &AddResult{
-			Node: AddNodeInfo{
-				MP:    "100",
-				SID:   "A3F7c9Qx7Lm2",
-				Title: "Chapter One",
-			},
-			FilesCreated: []string{
-				"100_A3F7c9Qx7Lm2_draft_chapter-one.md",
-				"100_A3F7c9Qx7Lm2_notes.md",
-			},
-		},
-	}
-	cmd, buf := newTestAddCmd(runner, "Chapter One")
-
-	err := cmd.Execute()
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Errorf("output should contain notes filename, got: %q", output)
 	}
 
-	output := buf.String()
-	if output == "" {
-		t.Fatal("expected non-empty output")
-	}
 	var parsed map[string]interface{}
 	if json.Unmarshal(buf.Bytes(), &parsed) == nil {
-		t.Errorf("expected human-readable output without --json flag, got valid JSON: %s", output)
+		t.Errorf("output should not be valid JSON without --json flag, got: %s", output)
 	}
 }
 
@@ -391,19 +294,7 @@ func TestAddCmd_DryRunBehavior(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			runner := &mockAddRunner{
-				result: &AddResult{
-					Node: AddNodeInfo{
-						MP:    "100",
-						SID:   "A3F7c9Qx7Lm2",
-						Title: "Chapter One",
-					},
-					FilesCreated: []string{
-						"100_A3F7c9Qx7Lm2_draft_chapter-one.md",
-						"100_A3F7c9Qx7Lm2_notes.md",
-					},
-				},
-			}
+			runner := &mockAddRunner{result: chapterOneResult()}
 			root := NewRootCmd()
 			cmd := NewAddCmd(runner)
 			root.AddCommand(cmd)
@@ -471,19 +362,7 @@ func TestAddCmd_DryRunSetsPlanned(t *testing.T) {
 }
 
 func TestAddCmd_GlobalJSONFlag(t *testing.T) {
-	runner := &mockAddRunner{
-		result: &AddResult{
-			Node: AddNodeInfo{
-				MP:    "100",
-				SID:   "A3F7c9Qx7Lm2",
-				Title: "Chapter One",
-			},
-			FilesCreated: []string{
-				"100_A3F7c9Qx7Lm2_draft_chapter-one.md",
-				"100_A3F7c9Qx7Lm2_notes.md",
-			},
-		},
-	}
+	runner := &mockAddRunner{result: chapterOneResult()}
 	root := NewRootCmd()
 	cmd := NewAddCmd(runner)
 	root.AddCommand(cmd)
@@ -524,19 +403,9 @@ func TestAddResult_PlannedField(t *testing.T) {
 }
 
 func TestAddResult_PlannedField_JSON(t *testing.T) {
-	result := AddResult{
-		Node: AddNodeInfo{
-			MP:    "100",
-			SID:   "A3F7c9Qx7Lm2",
-			Title: "Chapter One",
-		},
-		FilesCreated: []string{
-			"100_A3F7c9Qx7Lm2_draft_chapter-one.md",
-			"100_A3F7c9Qx7Lm2_notes.md",
-		},
-		Planned: true,
-	}
-	data, err := json.Marshal(result)
+	fixture := chapterOneResult()
+	fixture.Planned = true
+	data, err := json.Marshal(fixture)
 	if err != nil {
 		t.Fatalf("failed to marshal: %v", err)
 	}
