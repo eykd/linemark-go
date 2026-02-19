@@ -50,6 +50,7 @@ func NewRootCmd() *cobra.Command {
 		Short:         "Manage long-form prose projects with organized Markdown files",
 		Long:          "lmk is a CLI tool for managing long-form prose projects using organized Markdown files.",
 		SilenceErrors: true,
+		SilenceUsage:  true,
 	}
 
 	// Add persistent flags (available to all subcommands)
