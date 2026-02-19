@@ -47,7 +47,9 @@ func (mp MaterializedPath) Parent() (MaterializedPath, bool) {
 	if len(mp.segments) <= 1 {
 		return MaterializedPath{}, false
 	}
-	return MaterializedPath{segments: mp.segments[:len(mp.segments)-1]}, true
+	parent := make([]string, len(mp.segments)-1)
+	copy(parent, mp.segments)
+	return MaterializedPath{segments: parent}, true
 }
 
 // Segments returns a copy of the path segments.
