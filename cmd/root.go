@@ -46,9 +46,10 @@ func GetDryRun() bool {
 // This is useful for testing to get a fresh command tree.
 func NewRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "lmk",
-		Short: "Manage long-form prose projects with organized Markdown files",
-		Long:  "lmk is a CLI tool for managing long-form prose projects using organized Markdown files.",
+		Use:           "lmk",
+		Short:         "Manage long-form prose projects with organized Markdown files",
+		Long:          "lmk is a CLI tool for managing long-form prose projects using organized Markdown files.",
+		SilenceErrors: true,
 	}
 
 	// Add persistent flags (available to all subcommands)
