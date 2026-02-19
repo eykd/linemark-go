@@ -77,7 +77,9 @@ type ModifyResult struct{}
 type ListResult struct{}
 
 // CheckResult holds the result of checking the outline.
-type CheckResult struct{}
+type CheckResult struct {
+	Findings []domain.Finding
+}
 
 // RepairResult holds the result of repairing the outline.
 type RepairResult struct{}
@@ -144,7 +146,67 @@ func (s *OutlineService) ListTypes(ctx context.Context, selector string) (*ListR
 
 // Check validates the outline without acquiring an advisory lock.
 func (s *OutlineService) Check(ctx context.Context) (*CheckResult, error) {
-	return &CheckResult{}, nil
+	var files []string
+	if s.reader != nil {
+		var err error
+		files, err = s.reader.ReadDir(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var parsed []domain.ParsedFile
+	var findings []domain.Finding
+
+	for _, f := range files {
+		pf, parseErr := domain.ParseFilename(f)
+		if parseErr != nil {
+			findings = append(findings, domain.Finding{
+				Type:     domain.FindingInvalidFilename,
+				Severity: domain.SeverityWarning,
+				Message:  fmt.Sprintf("invalid filename: %s", f),
+				Path:     f,
+			})
+			continue
+		}
+		parsed = append(parsed, pf)
+	}
+
+	outline, buildFindings, err := s.builder.BuildOutline(parsed)
+	if err != nil {
+		return nil, err
+	}
+
+	findings = append(findings, buildFindings...)
+
+	for _, node := range outline.Nodes {
+		hasDraft := false
+		hasNotes := false
+		for _, doc := range node.Documents {
+			if doc.Type == "draft" {
+				hasDraft = true
+			}
+			if doc.Type == "notes" {
+				hasNotes = true
+			}
+		}
+		if !hasDraft {
+			findings = append(findings, domain.Finding{
+				Type:     domain.FindingMissingDocType,
+				Severity: domain.SeverityError,
+				Message:  fmt.Sprintf("node %s missing draft", node.SID),
+			})
+		}
+		if !hasNotes {
+			findings = append(findings, domain.Finding{
+				Type:     domain.FindingMissingDocType,
+				Severity: domain.SeverityError,
+				Message:  fmt.Sprintf("node %s missing notes", node.SID),
+			})
+		}
+	}
+
+	return &CheckResult{Findings: findings}, nil
 }
 
 // Repair repairs the outline, acquiring an advisory lock first.
