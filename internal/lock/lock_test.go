@@ -229,3 +229,28 @@ func TestNewFromPath_CreatesLockAtPath(t *testing.T) {
 		t.Fatal("NewFromPath returned nil")
 	}
 }
+
+// Compile-time assertion: *Lock must satisfy the Locker interface.
+var _ lock.Locker = (*lock.Lock)(nil)
+
+func TestLocker_InterfaceSatisfaction(t *testing.T) {
+	m := &mockFlocker{tryLockResult: true}
+	var locker lock.Locker = lock.New(m)
+
+	err := locker.TryLock(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = locker.Unlock()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDefaultPath_IsLinemarkLock(t *testing.T) {
+	want := ".linemark/lock"
+	if lock.DefaultPath != want {
+		t.Errorf("DefaultPath = %q, want %q", lock.DefaultPath, want)
+	}
+}
