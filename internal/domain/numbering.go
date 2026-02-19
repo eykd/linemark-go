@@ -24,7 +24,7 @@ func FindGap(low, high int) (int, bool) {
 	}
 
 	for _, tier := range []int{100, 10} {
-		candidate := ((low/tier) + 1) * tier
+		candidate := ((low / tier) + 1) * tier
 		if candidate > low && candidate < high {
 			return candidate, true
 		}
