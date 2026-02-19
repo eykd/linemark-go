@@ -173,12 +173,10 @@ func (s *OutlineService) AddType(ctx context.Context, docType, selector string) 
 
 // addTypeImpl performs the I/O operations for AddType.
 func (s *OutlineService) addTypeImpl(ctx context.Context, docType, selector string) (*ModifyResult, error) {
-	files, err := s.reader.ReadDir(ctx)
+	parsed, err := s.readAndParse(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	parsed := parseValidFiles(files)
 
 	nodeMP, nodeSID, err := findNodeMP(parsed, selector)
 	if err != nil {
@@ -213,12 +211,10 @@ func (s *OutlineService) RemoveType(ctx context.Context, docType, selector strin
 
 // removeTypeImpl performs the I/O operations for RemoveType.
 func (s *OutlineService) removeTypeImpl(ctx context.Context, docType, selector string) (*ModifyResult, error) {
-	files, err := s.reader.ReadDir(ctx)
+	parsed, err := s.readAndParse(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	parsed := parseValidFiles(files)
 
 	nodeMP, nodeSID, err := findNodeMP(parsed, selector)
 	if err != nil {
@@ -248,12 +244,10 @@ func (s *OutlineService) ListTypes(ctx context.Context, selector string) (*ListR
 
 // listTypesImpl performs the I/O operations for ListTypes.
 func (s *OutlineService) listTypesImpl(ctx context.Context, selector string) (*ListResult, error) {
-	files, err := s.reader.ReadDir(ctx)
+	parsed, err := s.readAndParse(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	parsed := parseValidFiles(files)
 
 	nodeMP, nodeSID, err := findNodeMP(parsed, selector)
 	if err != nil {
@@ -277,16 +271,15 @@ func (s *OutlineService) listTypesImpl(ctx context.Context, selector string) (*L
 
 // Check validates the outline without acquiring an advisory lock.
 func (s *OutlineService) Check(ctx context.Context) (*CheckResult, error) {
-	var files []string
+	var parsed []domain.ParsedFile
+	var findings []domain.Finding
 	if s.reader != nil {
 		var err error
-		files, err = s.reader.ReadDir(ctx)
+		parsed, findings, err = s.readAndParseWithFindings(ctx)
 		if err != nil {
 			return nil, err
 		}
 	}
-
-	parsed, findings := parseFilesWithFindings(files)
 
 	outline, buildFindings, err := s.builder.BuildOutline(parsed)
 	if err != nil {
@@ -315,12 +308,10 @@ func (s *OutlineService) Repair(ctx context.Context) (*RepairResult, error) {
 
 // repairImpl performs the I/O operations for Repair.
 func (s *OutlineService) repairImpl(ctx context.Context) (*RepairResult, error) {
-	files, err := s.reader.ReadDir(ctx)
+	parsed, err := s.readAndParse(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	parsed := parseValidFiles(files)
 
 	outline, buildFindings, err := s.builder.BuildOutline(parsed)
 	if err != nil {
@@ -334,13 +325,7 @@ func (s *OutlineService) repairImpl(ctx context.Context) (*RepairResult, error) 
 
 	// Repair missing doc types
 	for _, node := range outline.Nodes {
-		hasNotes := false
-		for _, doc := range node.Documents {
-			if doc.Type == domain.DocTypeNotes {
-				hasNotes = true
-			}
-		}
-		if !hasNotes {
+		if !nodeHasDocType(node, domain.DocTypeNotes) {
 			filename := domain.GenerateFilename(node.MP.String(), node.SID, domain.DocTypeNotes, "")
 			if err := s.writer.WriteFile(ctx, filename, ""); err != nil {
 				return nil, err
@@ -392,12 +377,10 @@ func (s *OutlineService) repairImpl(ctx context.Context) (*RepairResult, error) 
 
 // Load reads the project directory and builds an Outline without acquiring a lock.
 func (s *OutlineService) Load(ctx context.Context) (*LoadResult, error) {
-	files, err := s.reader.ReadDir(ctx)
+	parsed, findings, err := s.readAndParseWithFindings(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	parsed, findings := parseFilesWithFindings(files)
 
 	outline, buildFindings, err := s.builder.BuildOutline(parsed)
 	if err != nil {
@@ -473,12 +456,10 @@ func (s *OutlineService) Delete(ctx context.Context, sel domain.Selector, mode d
 	}
 	defer s.locker.Unlock()
 
-	files, err := s.reader.ReadDir(ctx)
+	parsed, err := s.readAndParse(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	parsed := parseValidFiles(files)
 
 	// Resolve the target node
 	targetMP, targetSID, err := resolveTarget(parsed, sel)
@@ -529,12 +510,10 @@ func (s *OutlineService) Move(ctx context.Context, source, target domain.Selecto
 	}
 	defer s.locker.Unlock()
 
-	files, err := s.reader.ReadDir(ctx)
+	parsed, err := s.readAndParse(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	parsed := parseValidFiles(files)
 
 	sourceMP, _, err := resolveTarget(parsed, source)
 	if err != nil {
@@ -587,12 +566,10 @@ func (s *OutlineService) Compact(ctx context.Context, selector string, apply boo
 
 // compactImpl performs the I/O operations for Compact.
 func (s *OutlineService) compactImpl(ctx context.Context, selector string, apply bool) (*CompactResult, error) {
-	files, err := s.reader.ReadDir(ctx)
+	parsed, err := s.readAndParse(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	parsed := parseValidFiles(files)
 	renames := s.compactChildrenImpl(parsed, selector)
 
 	result := &CompactResult{Renames: renames}
@@ -676,12 +653,10 @@ func (s *OutlineService) Rename(ctx context.Context, selector, newTitle string, 
 
 // renameImpl performs the I/O operations for Rename.
 func (s *OutlineService) renameImpl(ctx context.Context, selector, newTitle string, apply bool) (*RenameResult, error) {
-	files, err := s.reader.ReadDir(ctx)
+	parsed, err := s.readAndParse(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	parsed := parseValidFiles(files)
 
 	nodeMP, nodeSID, err := findNodeMP(parsed, selector)
 	if err != nil {
@@ -763,28 +738,28 @@ func findNodeMP(parsed []domain.ParsedFile, selector string) (string, string, er
 	return "", "", ErrNodeNotFound
 }
 
+// nodeHasDocType reports whether a node contains a document of the given type.
+func nodeHasDocType(node domain.Node, docType string) bool {
+	for _, doc := range node.Documents {
+		if doc.Type == docType {
+			return true
+		}
+	}
+	return false
+}
+
 // findMissingDocTypeFindings checks each node for missing required document types.
 func findMissingDocTypeFindings(nodes []domain.Node) []domain.Finding {
 	var findings []domain.Finding
 	for _, node := range nodes {
-		hasDraft := false
-		hasNotes := false
-		for _, doc := range node.Documents {
-			if doc.Type == domain.DocTypeDraft {
-				hasDraft = true
-			}
-			if doc.Type == domain.DocTypeNotes {
-				hasNotes = true
-			}
-		}
-		if !hasDraft {
+		if !nodeHasDocType(node, domain.DocTypeDraft) {
 			findings = append(findings, domain.Finding{
 				Type:     domain.FindingMissingDocType,
 				Severity: domain.SeverityError,
 				Message:  fmt.Sprintf("node %s missing draft", node.SID),
 			})
 		}
-		if !hasNotes {
+		if !nodeHasDocType(node, domain.DocTypeNotes) {
 			findings = append(findings, domain.Finding{
 				Type:     domain.FindingMissingDocType,
 				Severity: domain.SeverityError,
@@ -793,6 +768,25 @@ func findMissingDocTypeFindings(nodes []domain.Node) []domain.Finding {
 		}
 	}
 	return findings
+}
+
+// readAndParse reads the project directory and parses valid filenames.
+func (s *OutlineService) readAndParse(ctx context.Context) ([]domain.ParsedFile, error) {
+	files, err := s.reader.ReadDir(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return parseValidFiles(files), nil
+}
+
+// readAndParseWithFindings reads the project directory and parses filenames, collecting findings for invalid ones.
+func (s *OutlineService) readAndParseWithFindings(ctx context.Context) ([]domain.ParsedFile, []domain.Finding, error) {
+	files, err := s.reader.ReadDir(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	parsed, findings := parseFilesWithFindings(files)
+	return parsed, findings, nil
 }
 
 // parseFilesWithFindings parses filenames, returning parsed files and findings for invalid ones.
