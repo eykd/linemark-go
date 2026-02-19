@@ -163,33 +163,7 @@ func (s *OutlineService) Check(ctx context.Context) (*CheckResult, error) {
 	}
 
 	findings = append(findings, buildFindings...)
-
-	for _, node := range outline.Nodes {
-		hasDraft := false
-		hasNotes := false
-		for _, doc := range node.Documents {
-			if doc.Type == domain.DocTypeDraft {
-				hasDraft = true
-			}
-			if doc.Type == domain.DocTypeNotes {
-				hasNotes = true
-			}
-		}
-		if !hasDraft {
-			findings = append(findings, domain.Finding{
-				Type:     domain.FindingMissingDocType,
-				Severity: domain.SeverityError,
-				Message:  fmt.Sprintf("node %s missing draft", node.SID),
-			})
-		}
-		if !hasNotes {
-			findings = append(findings, domain.Finding{
-				Type:     domain.FindingMissingDocType,
-				Severity: domain.SeverityError,
-				Message:  fmt.Sprintf("node %s missing notes", node.SID),
-			})
-		}
-	}
+	findings = append(findings, findMissingDocTypeFindings(outline.Nodes)...)
 
 	return &CheckResult{Findings: findings}, nil
 }
@@ -285,7 +259,7 @@ func (s *OutlineService) Delete(ctx context.Context, sel domain.Selector, mode d
 	if err := s.locker.TryLock(ctx); err != nil {
 		return nil, err
 	}
-	defer func() { _ = s.locker.Unlock() }()
+	defer s.locker.Unlock()
 
 	files, err := s.reader.ReadDir(ctx)
 	if err != nil {
@@ -341,7 +315,7 @@ func (s *OutlineService) Move(ctx context.Context, source, target domain.Selecto
 	if err := s.locker.TryLock(ctx); err != nil {
 		return nil, err
 	}
-	defer func() { _ = s.locker.Unlock() }()
+	defer s.locker.Unlock()
 
 	files, err := s.reader.ReadDir(ctx)
 	if err != nil {
@@ -387,6 +361,38 @@ func (s *OutlineService) Move(ctx context.Context, source, target domain.Selecto
 	}
 
 	return result, nil
+}
+
+// findMissingDocTypeFindings checks each node for missing required document types.
+func findMissingDocTypeFindings(nodes []domain.Node) []domain.Finding {
+	var findings []domain.Finding
+	for _, node := range nodes {
+		hasDraft := false
+		hasNotes := false
+		for _, doc := range node.Documents {
+			if doc.Type == domain.DocTypeDraft {
+				hasDraft = true
+			}
+			if doc.Type == domain.DocTypeNotes {
+				hasNotes = true
+			}
+		}
+		if !hasDraft {
+			findings = append(findings, domain.Finding{
+				Type:     domain.FindingMissingDocType,
+				Severity: domain.SeverityError,
+				Message:  fmt.Sprintf("node %s missing draft", node.SID),
+			})
+		}
+		if !hasNotes {
+			findings = append(findings, domain.Finding{
+				Type:     domain.FindingMissingDocType,
+				Severity: domain.SeverityError,
+				Message:  fmt.Sprintf("node %s missing notes", node.SID),
+			})
+		}
+	}
+	return findings
 }
 
 // parseFilesWithFindings parses filenames, returning parsed files and findings for invalid ones.
