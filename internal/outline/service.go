@@ -1007,10 +1007,31 @@ func (s *OutlineService) Add(ctx context.Context, title, parentMP string) (*AddR
 }
 
 // formatFrontmatter creates YAML frontmatter with a title field.
+// The title is encoded as a safe YAML scalar to prevent injection.
 func formatFrontmatter(title string) string {
 	value := title
-	if strings.Contains(title, ":") {
-		value = `"` + title + `"`
+	if strings.ContainsAny(title, "\n:\"") {
+		hasNewline := strings.Contains(title, "\n")
+		var b strings.Builder
+		b.WriteByte('"')
+		for _, c := range title {
+			switch c {
+			case '"':
+				b.WriteString(`\"`)
+			case '\n':
+				b.WriteString(`\n`)
+			case ':':
+				if hasNewline {
+					b.WriteString(`\x3a`)
+				} else {
+					b.WriteRune(c)
+				}
+			default:
+				b.WriteRune(c)
+			}
+		}
+		b.WriteByte('"')
+		value = b.String()
 	}
 	return fmt.Sprintf("---\ntitle: %s\n---\n", value)
 }

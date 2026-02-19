@@ -112,21 +112,32 @@ func SetTitle(input string, newTitle string) (string, error) {
 }
 
 // encodeYAMLValue encodes a string as a safe YAML scalar value.
-// Strings containing newlines or colons use double-quoted style with
-// escape sequences that prevent YAML injection.
+// Strings containing newlines, colons, double quotes, backslashes,
+// or leading # use double-quoted style with escape sequences that
+// prevent YAML injection.
 func encodeYAMLValue(s string) string {
-	if !strings.ContainsAny(s, "\n:") {
+	if !strings.ContainsAny(s, "\n:\"\\") && !strings.HasPrefix(s, "#") {
 		return s
 	}
+
+	hasNewline := strings.Contains(s, "\n")
 
 	var b strings.Builder
 	b.WriteByte('"')
 	for _, c := range s {
 		switch c {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
 		case '\n':
 			b.WriteString(`\n`)
 		case ':':
-			b.WriteString(`\x3a`)
+			if hasNewline {
+				b.WriteString(`\x3a`)
+			} else {
+				b.WriteRune(c)
+			}
 		default:
 			b.WriteRune(c)
 		}

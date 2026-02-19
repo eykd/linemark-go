@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -18,6 +19,19 @@ type ParsedFile struct {
 
 // ErrInvalidFilename is returned when a filename doesn't match the expected format.
 var ErrInvalidFilename = errors.New("invalid filename")
+
+// ErrInvalidDocType is returned when a doc type contains invalid characters.
+var ErrInvalidDocType = errors.New("invalid doc type")
+
+var docTypeRegex = regexp.MustCompile(`^[a-z]+$`)
+
+// ValidateDocType checks that a doc type contains only lowercase ASCII letters.
+func ValidateDocType(docType string) error {
+	if !docTypeRegex.MatchString(docType) {
+		return fmt.Errorf("%w: %q", ErrInvalidDocType, docType)
+	}
+	return nil
+}
 
 var filenameRegex = regexp.MustCompile(
 	`^(\d{3}(?:-\d{3})*)_([a-zA-Z0-9]{8,12})_([a-z]+)(?:_(.+))?\.md$`,
@@ -38,11 +52,16 @@ func ParseFilename(filename string) (ParsedFile, error) {
 		}
 	}
 
+	slug := matches[4]
+	if strings.ContainsAny(slug, "/\\\x00") {
+		return ParsedFile{}, ErrInvalidFilename
+	}
+
 	return ParsedFile{
 		MP:        mp,
 		SID:       matches[2],
 		DocType:   matches[3],
-		Slug:      matches[4],
+		Slug:      slug,
 		PathParts: pathParts,
 		Depth:     len(pathParts),
 	}, nil
