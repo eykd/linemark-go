@@ -1,6 +1,6 @@
 {
   "complete": true,
-  "reason": "All requirements implemented with comprehensive test coverage: initial 100-spacing, tiered gap-finding (100s/10s/1s), before/after placement, slot exhaustion errors, compact renumbering, and 100% function coverage",
+  "reason": "All requirements implemented with comprehensive test coverage: MP/SID parsing, mp:/sid: prefixes, MP precedence on ambiguity, and 100% function coverage",
   "remaining_items": [],
   "test_gaps": []
 }
