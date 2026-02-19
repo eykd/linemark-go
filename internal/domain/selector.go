@@ -20,6 +20,11 @@ const (
 	SelectorSID
 )
 
+const (
+	mpPrefix  = "mp:"
+	sidPrefix = "sid:"
+)
+
 var (
 	mpPattern  = regexp.MustCompile(`^\d{3}(?:-\d{3})*$`)
 	sidPattern = regexp.MustCompile(`^[A-Za-z0-9]{8,12}$`)
@@ -39,23 +44,21 @@ func ParseSelector(input string) (Selector, error) {
 		return Selector{}, fmt.Errorf("%w: empty input", ErrInvalidSelector)
 	}
 
-	if strings.HasPrefix(input, "mp:") {
-		value := input[3:]
+	if value, ok := strings.CutPrefix(input, mpPrefix); ok {
 		if !isValidMP(value) {
-			return Selector{}, fmt.Errorf("%w: %q", ErrInvalidSelector, input)
+			return Selector{}, selectorErr(input)
 		}
 		return Selector{kind: SelectorMP, value: value, explicit: true}, nil
 	}
-	if strings.HasPrefix(input, "sid:") {
-		value := input[4:]
+	if value, ok := strings.CutPrefix(input, sidPrefix); ok {
 		if !isValidSID(value) {
-			return Selector{}, fmt.Errorf("%w: %q", ErrInvalidSelector, input)
+			return Selector{}, selectorErr(input)
 		}
 		return Selector{kind: SelectorSID, value: value, explicit: true}, nil
 	}
 
 	if strings.Contains(input, ":") {
-		return Selector{}, fmt.Errorf("%w: %q", ErrInvalidSelector, input)
+		return Selector{}, selectorErr(input)
 	}
 
 	if isValidMP(input) {
@@ -65,7 +68,11 @@ func ParseSelector(input string) (Selector, error) {
 		return Selector{kind: SelectorSID, value: input}, nil
 	}
 
-	return Selector{}, fmt.Errorf("%w: %q", ErrInvalidSelector, input)
+	return Selector{}, selectorErr(input)
+}
+
+func selectorErr(input string) error {
+	return fmt.Errorf("%w: %q", ErrInvalidSelector, input)
 }
 
 func isValidMP(s string) bool {
@@ -99,9 +106,9 @@ func (s Selector) String() string {
 	if s.explicit {
 		switch s.kind {
 		case SelectorMP:
-			return "mp:" + s.value
+			return mpPrefix + s.value
 		case SelectorSID:
-			return "sid:" + s.value
+			return sidPrefix + s.value
 		}
 	}
 	return s.value
