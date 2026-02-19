@@ -260,14 +260,7 @@ func (s *OutlineService) Delete(ctx context.Context, sel domain.Selector, mode d
 		return nil, err
 	}
 
-	// Parse all filenames
-	var parsed []domain.ParsedFile
-	for _, f := range files {
-		pf, parseErr := domain.ParseFilename(f)
-		if parseErr == nil {
-			parsed = append(parsed, pf)
-		}
-	}
+	parsed := parseValidFiles(files)
 
 	// Resolve the target node
 	targetMP, targetSID, err := resolveTarget(parsed, sel)
@@ -323,13 +316,7 @@ func (s *OutlineService) Move(ctx context.Context, source, target domain.Selecto
 		return nil, err
 	}
 
-	var parsed []domain.ParsedFile
-	for _, f := range files {
-		pf, parseErr := domain.ParseFilename(f)
-		if parseErr == nil {
-			parsed = append(parsed, pf)
-		}
-	}
+	parsed := parseValidFiles(files)
 
 	sourceMP, _, err := resolveTarget(parsed, source)
 	if err != nil {
@@ -373,6 +360,18 @@ func (s *OutlineService) Move(ctx context.Context, source, target domain.Selecto
 	}
 
 	return result, nil
+}
+
+// parseValidFiles parses filenames, silently skipping invalid ones.
+func parseValidFiles(files []string) []domain.ParsedFile {
+	var parsed []domain.ParsedFile
+	for _, f := range files {
+		pf, err := domain.ParseFilename(f)
+		if err == nil {
+			parsed = append(parsed, pf)
+		}
+	}
+	return parsed
 }
 
 // generateName reconstructs the filename from a ParsedFile's components.
