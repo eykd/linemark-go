@@ -190,13 +190,7 @@ func (s *OutlineService) Add(ctx context.Context, title, parentMP string) (*AddR
 		return nil, err
 	}
 
-	segment := fmt.Sprintf("%03d", nextNum)
-	var mp string
-	if parentMP == "" {
-		mp = segment
-	} else {
-		mp = parentMP + "-" + segment
-	}
+	mp := buildChildMP(parentMP, nextNum)
 
 	slugStr := slug.Slug(title)
 	filename := domain.GenerateFilename(mp, sid, "draft", slugStr)
@@ -211,6 +205,15 @@ func (s *OutlineService) Add(ctx context.Context, title, parentMP string) (*AddR
 		MP:       mp,
 		Filename: filename,
 	}, nil
+}
+
+// buildChildMP constructs an MP path by appending a numbered segment under parentMP.
+func buildChildMP(parentMP string, num int) string {
+	segment := fmt.Sprintf("%03d", num)
+	if parentMP == "" {
+		return segment
+	}
+	return parentMP + "-" + segment
 }
 
 // isDirectChild reports whether pf is a direct child of parentMP.
@@ -231,6 +234,7 @@ func collectChildNumbers(files []string, parentMP string) []int {
 			continue
 		}
 		if isDirectChild(pf, parentMP) {
+			// PathParts are guaranteed numeric by ParseFilename regex (\d{3}).
 			n, _ := strconv.Atoi(pf.PathParts[len(pf.PathParts)-1])
 			occupied = append(occupied, n)
 		}

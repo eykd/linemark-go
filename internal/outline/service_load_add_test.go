@@ -420,3 +420,95 @@ func TestOutlineService_Add_ReadDirError(t *testing.T) {
 		t.Error("lock should be released after ReadDir error")
 	}
 }
+
+// --- Test gap: BuildOutline error propagation in Load ---
+
+// fakeOutlineBuilder is a test double for injecting BuildOutline errors.
+type fakeOutlineBuilder struct {
+	outline  domain.Outline
+	findings []domain.Finding
+	err      error
+}
+
+func (f *fakeOutlineBuilder) BuildOutline(files []domain.ParsedFile) (domain.Outline, []domain.Finding, error) {
+	return f.outline, f.findings, f.err
+}
+
+func TestOutlineService_Load_BuildOutlineError(t *testing.T) {
+	reader := &fakeDirectoryReader{
+		files: []string{"001_ABCD1234EF_draft_hello.md"},
+	}
+	builder := &fakeOutlineBuilder{
+		err: fmt.Errorf("corrupt outline data"),
+	}
+	svc := NewOutlineService(reader, nil, &mockLocker{}, nil)
+	svc.builder = builder
+
+	_, err := svc.Load(context.Background())
+
+	if err == nil {
+		t.Fatal("expected error from BuildOutline, got nil")
+	}
+	if err.Error() != "corrupt outline data" {
+		t.Errorf("error = %q, want %q", err.Error(), "corrupt outline data")
+	}
+}
+
+// --- Test gap: NextSiblingNumber error in Add ---
+
+func TestOutlineService_Add_SiblingSlotsExhausted(t *testing.T) {
+	// File at position 999 — no room for the next sibling after it
+	reader := &fakeDirectoryReader{
+		files: []string{"999_ABCD1234EF_draft_last-slot.md"},
+	}
+	writer := &fakeFileWriter{written: make(map[string]string)}
+	locker := &mockLocker{}
+	reserver := &fakeSIDReserver{sid: "NEWID12345AB"}
+	svc := NewOutlineService(reader, writer, locker, reserver)
+
+	_, err := svc.Add(context.Background(), "One More", "")
+
+	if err == nil {
+		t.Fatal("expected error when all sibling slots exhausted, got nil")
+	}
+	if !errors.Is(err, domain.ErrNoSlotAvailable) {
+		t.Errorf("error = %v, want %v", err, domain.ErrNoSlotAvailable)
+	}
+	if len(writer.written) != 0 {
+		t.Error("no file should be written when sibling allocation fails")
+	}
+	if !locker.unlockCalled {
+		t.Error("lock should be released after NextSiblingNumber error")
+	}
+}
+
+// --- Test gap: invalid filenames skipped in collectChildNumbers ---
+
+func TestOutlineService_Add_InvalidFilenamesSkipped(t *testing.T) {
+	// Mix of valid and invalid filenames — invalid ones should be ignored
+	reader := &fakeDirectoryReader{
+		files: []string{
+			"100_ABCD1234EF_draft_first.md",
+			"not-a-valid-file.txt",
+			"another_bad_file",
+		},
+	}
+	writer := &fakeFileWriter{written: make(map[string]string)}
+	locker := &mockLocker{}
+	reserver := &fakeSIDReserver{sid: "NEWID12345AB"}
+	svc := NewOutlineService(reader, writer, locker, reserver)
+
+	result, err := svc.Add(context.Background(), "Second Node", "")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Next sibling after 100 should be 200 (invalid filenames ignored)
+	if result.MP != "200" {
+		t.Errorf("MP = %q, want %q (invalid filenames should be skipped)", result.MP, "200")
+	}
+	wantFilename := "200_NEWID12345AB_draft_second-node.md"
+	if result.Filename != wantFilename {
+		t.Errorf("filename = %q, want %q", result.Filename, wantFilename)
+	}
+}
