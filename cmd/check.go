@@ -28,6 +28,8 @@ const (
 	FindingMalformedFrontmatter FindingType = "malformed_frontmatter"
 	// FindingOrphanedReservation indicates a SID reservation has no content files.
 	FindingOrphanedReservation FindingType = "orphaned_reservation"
+	// FindingUnreservedSID indicates a SID is in use but not reserved.
+	FindingUnreservedSID FindingType = "unreserved_sid"
 )
 
 // Severity represents the severity level of a check finding.
@@ -74,8 +76,42 @@ func (e *FindingsDetectedError) ExitCode() int {
 	return 2
 }
 
+// RepairAction represents a single repair action performed.
+type RepairAction struct {
+	Type   FindingType `json:"type"`
+	Action string      `json:"action"`
+	Old    string      `json:"old"`
+	New    string      `json:"new"`
+}
+
+// RepairResult holds all repairs and unrepaired findings from a repair run.
+type RepairResult struct {
+	Repairs    []RepairAction `json:"repairs"`
+	Unrepaired []CheckFinding `json:"unrepaired"`
+}
+
+// RepairRunner defines the interface for running project repairs.
+type RepairRunner interface {
+	Repair(ctx context.Context) (*RepairResult, error)
+}
+
+// UnrepairedError is returned when repair leaves unresolved findings.
+type UnrepairedError struct {
+	Count int
+}
+
+// Error implements the error interface.
+func (e *UnrepairedError) Error() string {
+	return fmt.Sprintf("repair left %d unrepaired findings", e.Count)
+}
+
+// ExitCode returns the exit code for unrepaired findings (always 2).
+func (e *UnrepairedError) ExitCode() int {
+	return 2
+}
+
 // ExitCodeFromError returns the appropriate exit code for an error.
-// nil returns 0, FindingsDetectedError returns 2, all others return 1.
+// nil returns 0, FindingsDetectedError/UnrepairedError returns 2, all others return 1.
 func ExitCodeFromError(err error) int {
 	if err == nil {
 		return 0
@@ -83,6 +119,10 @@ func ExitCodeFromError(err error) int {
 	var findingsErr *FindingsDetectedError
 	if errors.As(err, &findingsErr) {
 		return findingsErr.ExitCode()
+	}
+	var unrepairedErr *UnrepairedError
+	if errors.As(err, &unrepairedErr) {
+		return unrepairedErr.ExitCode()
 	}
 	return 1
 }

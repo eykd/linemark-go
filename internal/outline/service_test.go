@@ -146,6 +146,60 @@ func TestOutlineService_ReadOnlyCommands_BypassLocking(t *testing.T) {
 	}
 }
 
+func TestOutlineService_Repair_Locking(t *testing.T) {
+	tests := []struct {
+		name       string
+		tryLockErr error
+		wantErr    bool
+		wantErrIs  error
+		wantUnlock bool
+	}{
+		{
+			name:       "acquires and releases lock",
+			wantUnlock: true,
+		},
+		{
+			name:       "fails fast when already locked",
+			tryLockErr: lock.ErrAlreadyLocked,
+			wantErr:    true,
+			wantErrIs:  lock.ErrAlreadyLocked,
+			wantUnlock: false,
+		},
+		{
+			name:       "propagates TryLock error",
+			tryLockErr: fmt.Errorf("permission denied"),
+			wantErr:    true,
+			wantUnlock: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			locker := &mockLocker{tryLockErr: tt.tryLockErr}
+			svc := NewOutlineService(locker)
+
+			_, err := svc.Repair(context.Background())
+
+			if !locker.tryLockCalled {
+				t.Error("Repair should call TryLock before mutating")
+			}
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tt.wantErrIs != nil && !errors.Is(err, tt.wantErrIs) {
+					t.Errorf("error = %v, want %v", err, tt.wantErrIs)
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if locker.unlockCalled != tt.wantUnlock {
+				t.Errorf("unlock called = %v, want %v", locker.unlockCalled, tt.wantUnlock)
+			}
+		})
+	}
+}
+
 func TestOutlineService_ErrAlreadyLocked_HasClearMessage(t *testing.T) {
 	locker := &mockLocker{tryLockErr: lock.ErrAlreadyLocked}
 	svc := NewOutlineService(locker)

@@ -284,3 +284,381 @@ func TestDoctorCmd_HasJSONFlag(t *testing.T) {
 		t.Errorf("--json default = %q, want %q", flag.DefValue, "false")
 	}
 }
+
+// --- Apply mode tests ---
+
+// mockRepairRunner is a test double for RepairRunner.
+type mockRepairRunner struct {
+	result *RepairResult
+	err    error
+	called bool
+}
+
+func (m *mockRepairRunner) Repair(ctx context.Context) (*RepairResult, error) {
+	m.called = true
+	return m.result, m.err
+}
+
+// repairJSONOutput is a test-only type for parsing JSON output from lmk doctor --apply --json.
+type repairJSONOutput struct {
+	Repairs    []repairJSONAction `json:"repairs"`
+	Unrepaired []checkJSONFinding `json:"unrepaired"`
+	Summary    struct {
+		Repaired   int `json:"repaired"`
+		Unrepaired int `json:"unrepaired"`
+	} `json:"summary"`
+}
+
+type repairJSONAction struct {
+	Type   string `json:"type"`
+	Action string `json:"action"`
+	Old    string `json:"old"`
+	New    string `json:"new"`
+}
+
+func TestDoctorCmd_Apply_RepairScenarios_JSON(t *testing.T) {
+	tests := []struct {
+		name           string
+		repairs        []RepairAction
+		unrepaired     []CheckFinding
+		wantRepaired   int
+		wantUnrepaired int
+		wantErr        bool
+	}{
+		{
+			name: "fixes slug drift",
+			repairs: []RepairAction{
+				{
+					Type:   FindingSlugDrift,
+					Action: "rename",
+					Old:    "001-200_A3F7c9Qx7Lm2_draft_chpter-one.md",
+					New:    "001-200_A3F7c9Qx7Lm2_draft_chapter-one.md",
+				},
+			},
+			wantRepaired:   1,
+			wantUnrepaired: 0,
+		},
+		{
+			name: "creates missing notes",
+			repairs: []RepairAction{
+				{
+					Type:   FindingMissingNotes,
+					Action: "create",
+					Old:    "",
+					New:    "001-200_A3F7c9Qx7Lm2_notes_chapter-one.md",
+				},
+			},
+			wantRepaired:   1,
+			wantUnrepaired: 0,
+		},
+		{
+			name: "reserves unreserved SIDs",
+			repairs: []RepairAction{
+				{
+					Type:   FindingUnreservedSID,
+					Action: "reserve",
+					Old:    "",
+					New:    ".linemark/ids/A3F7c9Qx7Lm2",
+				},
+			},
+			wantRepaired:   1,
+			wantUnrepaired: 0,
+		},
+		{
+			name: "reports duplicate SIDs as unrepaired",
+			unrepaired: []CheckFinding{
+				{
+					Type:     FindingDuplicateSID,
+					Severity: SeverityError,
+					Message:  "SID 'A3F7c9Qx7Lm2' used by nodes at 001 and 002",
+					Path:     "002_A3F7c9Qx7Lm2_draft_chapter-two.md",
+				},
+			},
+			wantRepaired:   0,
+			wantUnrepaired: 1,
+			wantErr:        true,
+		},
+		{
+			name: "mixed repairs and unrepaired",
+			repairs: []RepairAction{
+				{
+					Type:   FindingSlugDrift,
+					Action: "rename",
+					Old:    "001-200_A3F7c9Qx7Lm2_draft_chpter-one.md",
+					New:    "001-200_A3F7c9Qx7Lm2_draft_chapter-one.md",
+				},
+				{
+					Type:   FindingMissingNotes,
+					Action: "create",
+					Old:    "",
+					New:    "002-200_B4G8d0Ry8Mn3_notes_chapter-two.md",
+				},
+			},
+			unrepaired: []CheckFinding{
+				{
+					Type:     FindingDuplicateSID,
+					Severity: SeverityError,
+					Message:  "duplicate sid",
+					Path:     "003_C5H9e1Sz9No4_draft_chapter-three.md",
+				},
+			},
+			wantRepaired:   2,
+			wantUnrepaired: 1,
+			wantErr:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			checker := &mockCheckRunner{result: &CheckResult{}}
+			repairer := &mockRepairRunner{
+				result: &RepairResult{
+					Repairs:    tt.repairs,
+					Unrepaired: tt.unrepaired,
+				},
+			}
+			cmd := NewDoctorCmd(checker, repairer)
+			cmd.SetArgs([]string{"--apply", "--json"})
+			buf := new(bytes.Buffer)
+			cmd.SetOut(buf)
+			cmd.SetErr(new(bytes.Buffer))
+
+			err := cmd.Execute()
+
+			if tt.wantErr {
+				var unrepairedErr *UnrepairedError
+				if !errors.As(err, &unrepairedErr) {
+					t.Fatalf("expected UnrepairedError, got %T: %v", err, err)
+				}
+				if unrepairedErr.Count != tt.wantUnrepaired {
+					t.Errorf("UnrepairedError.Count = %d, want %d", unrepairedErr.Count, tt.wantUnrepaired)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			var output repairJSONOutput
+			if jsonErr := json.Unmarshal(buf.Bytes(), &output); jsonErr != nil {
+				t.Fatalf("invalid JSON: %v\nraw: %s", jsonErr, buf.String())
+			}
+			if len(output.Repairs) != len(tt.repairs) {
+				t.Errorf("repairs count = %d, want %d", len(output.Repairs), len(tt.repairs))
+			}
+			if len(output.Unrepaired) != len(tt.unrepaired) {
+				t.Errorf("unrepaired count = %d, want %d", len(output.Unrepaired), len(tt.unrepaired))
+			}
+			if output.Summary.Repaired != tt.wantRepaired {
+				t.Errorf("summary repaired = %d, want %d", output.Summary.Repaired, tt.wantRepaired)
+			}
+			if output.Summary.Unrepaired != tt.wantUnrepaired {
+				t.Errorf("summary unrepaired = %d, want %d", output.Summary.Unrepaired, tt.wantUnrepaired)
+			}
+		})
+	}
+}
+
+func TestDoctorCmd_Apply_NoFindings(t *testing.T) {
+	checker := &mockCheckRunner{result: &CheckResult{}}
+	repairer := &mockRepairRunner{
+		result: &RepairResult{},
+	}
+	cmd := NewDoctorCmd(checker, repairer)
+	cmd.SetArgs([]string{"--apply", "--json"})
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(new(bytes.Buffer))
+
+	err := cmd.Execute()
+
+	if err != nil {
+		t.Fatalf("expected no error for clean apply, got %v", err)
+	}
+
+	var output repairJSONOutput
+	if jsonErr := json.Unmarshal(buf.Bytes(), &output); jsonErr != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", jsonErr, buf.String())
+	}
+	if len(output.Repairs) != 0 {
+		t.Errorf("repairs count = %d, want 0", len(output.Repairs))
+	}
+	if len(output.Unrepaired) != 0 {
+		t.Errorf("unrepaired count = %d, want 0", len(output.Unrepaired))
+	}
+	if output.Summary.Repaired != 0 {
+		t.Errorf("summary repaired = %d, want 0", output.Summary.Repaired)
+	}
+	if output.Summary.Unrepaired != 0 {
+		t.Errorf("summary unrepaired = %d, want 0", output.Summary.Unrepaired)
+	}
+}
+
+func TestDoctorCmd_Apply_ServiceError(t *testing.T) {
+	checker := &mockCheckRunner{result: &CheckResult{}}
+	repairer := &mockRepairRunner{
+		err: fmt.Errorf("filesystem error"),
+	}
+	cmd := NewDoctorCmd(checker, repairer)
+	cmd.SetArgs([]string{"--apply"})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+
+	err := cmd.Execute()
+
+	if err == nil {
+		t.Fatal("expected error for repair service failure")
+	}
+	var unrepairedErr *UnrepairedError
+	if errors.As(err, &unrepairedErr) {
+		t.Error("service error should not be UnrepairedError")
+	}
+	if !strings.Contains(err.Error(), "filesystem error") {
+		t.Errorf("error should contain cause, got: %v", err)
+	}
+}
+
+func TestDoctorCmd_Apply_HumanReadableOutput(t *testing.T) {
+	checker := &mockCheckRunner{result: &CheckResult{}}
+	repairer := &mockRepairRunner{
+		result: &RepairResult{
+			Repairs: []RepairAction{
+				{
+					Type:   FindingSlugDrift,
+					Action: "rename",
+					Old:    "001-200_A3F7c9Qx7Lm2_draft_chpter-one.md",
+					New:    "001-200_A3F7c9Qx7Lm2_draft_chapter-one.md",
+				},
+			},
+			Unrepaired: []CheckFinding{
+				{
+					Type:     FindingDuplicateSID,
+					Severity: SeverityError,
+					Message:  "SID 'A3F7c9Qx7Lm2' used by nodes at 001 and 002",
+					Path:     "002_A3F7c9Qx7Lm2_draft_chapter-two.md",
+				},
+			},
+		},
+	}
+	cmd := NewDoctorCmd(checker, repairer)
+	cmd.SetArgs([]string{"--apply"})
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(new(bytes.Buffer))
+
+	_ = cmd.Execute()
+
+	output := buf.String()
+	if !strings.Contains(output, "slug_drift") {
+		t.Errorf("human output should contain repair type, got: %q", output)
+	}
+	if !strings.Contains(output, "rename") {
+		t.Errorf("human output should contain action, got: %q", output)
+	}
+	if !strings.Contains(output, "chpter-one") {
+		t.Errorf("human output should contain old path, got: %q", output)
+	}
+	if !strings.Contains(output, "chapter-one") {
+		t.Errorf("human output should contain new path, got: %q", output)
+	}
+	if !strings.Contains(output, "duplicate_sid") {
+		t.Errorf("human output should contain unrepaired type, got: %q", output)
+	}
+}
+
+func TestDoctorCmd_Apply_HumanReadable_Summary(t *testing.T) {
+	checker := &mockCheckRunner{result: &CheckResult{}}
+	repairer := &mockRepairRunner{
+		result: &RepairResult{
+			Repairs: []RepairAction{
+				{Type: FindingSlugDrift, Action: "rename", Old: "a.md", New: "b.md"},
+				{Type: FindingMissingNotes, Action: "create", Old: "", New: "c.md"},
+			},
+			Unrepaired: []CheckFinding{
+				{Type: FindingDuplicateSID, Severity: SeverityError, Message: "dup", Path: "d.md"},
+			},
+		},
+	}
+	cmd := NewDoctorCmd(checker, repairer)
+	cmd.SetArgs([]string{"--apply"})
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(new(bytes.Buffer))
+
+	_ = cmd.Execute()
+
+	output := buf.String()
+	if !strings.Contains(output, "2 repaired") {
+		t.Errorf("human output should contain repaired count, got: %q", output)
+	}
+	if !strings.Contains(output, "1 unrepaired") {
+		t.Errorf("human output should contain unrepaired count, got: %q", output)
+	}
+}
+
+func TestDoctorCmd_WithoutApply_DoesNotCallRepairer(t *testing.T) {
+	checker := &mockCheckRunner{result: &CheckResult{}}
+	repairer := &mockRepairRunner{
+		result: &RepairResult{},
+	}
+	cmd := NewDoctorCmd(checker, repairer)
+	// No --apply flag
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+
+	_ = cmd.Execute()
+
+	if repairer.called {
+		t.Error("repairer should not be called without --apply flag")
+	}
+}
+
+func TestDoctorCmd_Apply_Idempotent(t *testing.T) {
+	checker := &mockCheckRunner{result: &CheckResult{}}
+	// Second run returns no repairs (everything already fixed)
+	repairer := &mockRepairRunner{
+		result: &RepairResult{},
+	}
+	cmd := NewDoctorCmd(checker, repairer)
+	cmd.SetArgs([]string{"--apply", "--json"})
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(new(bytes.Buffer))
+
+	err := cmd.Execute()
+
+	if err != nil {
+		t.Fatalf("expected no error for idempotent run, got %v", err)
+	}
+
+	var output repairJSONOutput
+	if jsonErr := json.Unmarshal(buf.Bytes(), &output); jsonErr != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", jsonErr, buf.String())
+	}
+	if output.Summary.Repaired != 0 {
+		t.Errorf("idempotent run should have 0 repaired, got %d", output.Summary.Repaired)
+	}
+	if output.Summary.Unrepaired != 0 {
+		t.Errorf("idempotent run should have 0 unrepaired, got %d", output.Summary.Unrepaired)
+	}
+}
+
+func TestDoctorCmd_Apply_UnrepairedError_ExitCode(t *testing.T) {
+	checker := &mockCheckRunner{result: &CheckResult{}}
+	repairer := &mockRepairRunner{
+		result: &RepairResult{
+			Unrepaired: []CheckFinding{
+				{Type: FindingDuplicateSID, Severity: SeverityError, Message: "dup", Path: "a.md"},
+			},
+		},
+	}
+	cmd := NewDoctorCmd(checker, repairer)
+	cmd.SetArgs([]string{"--apply"})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+
+	err := cmd.Execute()
+
+	exitCode := ExitCodeFromError(err)
+	if exitCode != 2 {
+		t.Errorf("exit code = %d, want 2 for unrepaired findings", exitCode)
+	}
+}

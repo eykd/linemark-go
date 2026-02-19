@@ -20,6 +20,9 @@ type ListResult struct{}
 // CheckResult holds the result of checking the outline.
 type CheckResult struct{}
 
+// RepairResult holds the result of repairing the outline.
+type RepairResult struct{}
+
 // OutlineService coordinates outline mutations with advisory locking.
 type OutlineService struct {
 	locker Locker
@@ -58,4 +61,14 @@ func (s *OutlineService) ListTypes(ctx context.Context, selector string) (*ListR
 // Check validates the outline without acquiring an advisory lock.
 func (s *OutlineService) Check(ctx context.Context) (*CheckResult, error) {
 	return &CheckResult{}, nil
+}
+
+// Repair repairs the outline, acquiring an advisory lock first.
+func (s *OutlineService) Repair(ctx context.Context) (*RepairResult, error) {
+	if err := s.locker.TryLock(ctx); err != nil {
+		return nil, err
+	}
+	defer s.locker.Unlock()
+
+	return &RepairResult{}, nil
 }
