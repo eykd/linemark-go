@@ -9,8 +9,17 @@ import (
 	"github.com/gofrs/flock"
 )
 
+// DefaultPath is the lock file location relative to the project root.
+const DefaultPath = ".linemark/lock"
+
 // ErrAlreadyLocked is returned when another lmk process holds the lock.
 var ErrAlreadyLocked = errors.New("another lmk command is already running")
+
+// Locker is the consumer interface for advisory locking.
+type Locker interface {
+	TryLock(ctx context.Context) error
+	Unlock() error
+}
 
 // Flocker abstracts the subset of flock.Flock used for advisory locking.
 type Flocker interface {
