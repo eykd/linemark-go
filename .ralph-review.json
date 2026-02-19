@@ -1,6 +1,6 @@
 {
   "complete": true,
-  "reason": "All requirements implemented with comprehensive test coverage: Split/GetTitle/SetTitle/Serialize at 100% coverage, yaml.Node round-trip, unknown field preservation, empty frontmatter handling, YAML injection protection",
+  "reason": "All requirements implemented with comprehensive test coverage: initial 100-spacing, tiered gap-finding (100s/10s/1s), before/after placement, slot exhaustion errors, compact renumbering, and 100% function coverage",
   "remaining_items": [],
   "test_gaps": []
 }
