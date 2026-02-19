@@ -30,6 +30,8 @@ type RenameRunner interface {
 
 // NewRenameCmd creates the rename command with the given runner.
 func NewRenameCmd(runner RenameRunner) *cobra.Command {
+	var jsonOutput bool
+
 	cmd := &cobra.Command{
 		Use:          "rename <selector> <new-title>",
 		Short:        "Rename a node",
@@ -41,7 +43,7 @@ func NewRenameCmd(runner RenameRunner) *cobra.Command {
 				return fmt.Errorf("invalid selector %q: %w", selector, err)
 			}
 
-			isDryRun, _ := cmd.Flags().GetBool("dry-run")
+			isDryRun := GetDryRun()
 			result, err := runner.Rename(cmd.Context(), selector, args[1], !isDryRun)
 			if err != nil {
 				return err
@@ -51,8 +53,7 @@ func NewRenameCmd(runner RenameRunner) *cobra.Command {
 				result.Planned = true
 			}
 
-			useJSON, _ := cmd.Flags().GetBool("json")
-			if useJSON {
+			if jsonOutput || GetJSON() {
 				writeJSON(cmd.OutOrStdout(), result)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "Renamed %q to %q\n", result.Node.OldTitle, result.Node.NewTitle)
@@ -63,6 +64,8 @@ func NewRenameCmd(runner RenameRunner) *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output results as JSON")
 
 	return cmd
 }
