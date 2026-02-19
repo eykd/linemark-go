@@ -20,6 +20,7 @@ var dryRun bool
 
 func init() {
 	rootCmd = NewRootCmd()
+	rootCmd.AddCommand(NewAddCmd(nil))
 	rootCmd.AddCommand(NewCheckCmd(nil))
 	rootCmd.AddCommand(NewDoctorCmd(nil))
 	rootCmd.AddCommand(NewTypesCmd(nil))
