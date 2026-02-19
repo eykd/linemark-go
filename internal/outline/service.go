@@ -271,32 +271,31 @@ func (s *OutlineService) Delete(ctx context.Context, sel domain.Selector, mode d
 	var targetFiles []string
 	for _, pf := range parsed {
 		if pf.MP == targetMP {
-			targetFiles = append(targetFiles, domain.GenerateFilename(pf.MP, pf.SID, pf.DocType, pf.Slug))
+			targetFiles = append(targetFiles, generateName(pf))
 		}
 	}
 
-	// Collect children (files whose MP starts with targetMP-)
-	var childFiles []domain.ParsedFile
+	// Collect descendant files (any file whose MP starts with targetMP-)
+	var descendantFiles []domain.ParsedFile
 	for _, pf := range parsed {
 		if strings.HasPrefix(pf.MP, targetMP+"-") {
-			childFiles = append(childFiles, pf)
+			descendantFiles = append(descendantFiles, pf)
 		}
 	}
 
-	hasChildren := len(childFiles) > 0
+	hasChildren := len(descendantFiles) > 0
 
-	if mode == domain.DeleteModeDefault {
+	switch mode {
+	case domain.DeleteModeDefault:
 		if hasChildren {
 			return nil, ErrNodeHasChildren
 		}
 		return s.deleteFiles(ctx, targetFiles, nil, []string{targetSID}, apply)
-	}
-
-	if mode == domain.DeleteModeRecursive {
+	case domain.DeleteModeRecursive:
 		allFiles := append([]string{}, targetFiles...)
 		sidSet := map[string]bool{targetSID: true}
-		for _, pf := range childFiles {
-			allFiles = append(allFiles, domain.GenerateFilename(pf.MP, pf.SID, pf.DocType, pf.Slug))
+		for _, pf := range descendantFiles {
+			allFiles = append(allFiles, generateName(pf))
 			sidSet[pf.SID] = true
 		}
 		var sids []string
@@ -304,10 +303,14 @@ func (s *OutlineService) Delete(ctx context.Context, sel domain.Selector, mode d
 			sids = append(sids, sid)
 		}
 		return s.deleteFiles(ctx, allFiles, nil, sids, apply)
+	default: // DeleteModePromote
+		return s.promoteChildren(ctx, parsed, targetMP, targetSID, targetFiles, descendantFiles, apply)
 	}
+}
 
-	// DeleteModePromote
-	return s.promoteChildren(ctx, parsed, targetMP, targetSID, targetFiles, childFiles, apply)
+// generateName reconstructs the filename from a ParsedFile's components.
+func generateName(pf domain.ParsedFile) string {
+	return domain.GenerateFilename(pf.MP, pf.SID, pf.DocType, pf.Slug)
 }
 
 // resolveTarget finds the MP and SID of the node matching the selector.
@@ -325,16 +328,18 @@ func resolveTarget(parsed []domain.ParsedFile, sel domain.Selector) (string, str
 }
 
 // promoteChildren handles the promote delete mode.
-func (s *OutlineService) promoteChildren(ctx context.Context, parsed []domain.ParsedFile, targetMP, targetSID string, targetFiles []string, childFiles []domain.ParsedFile, apply bool) (*DeleteResult, error) {
+func (s *OutlineService) promoteChildren(ctx context.Context, parsed []domain.ParsedFile, targetMP, targetSID string, targetFiles []string, descendantFiles []domain.ParsedFile, apply bool) (*DeleteResult, error) {
 	// Find the parent MP of the target (empty string for root-level nodes).
-	// For "100" → "", for "100-200" → "100".
-	parentMP := strings.Join(strings.Split(targetMP, "-")[:strings.Count(targetMP, "-")], "-")
+	parentMP := ""
+	if i := strings.LastIndex(targetMP, "-"); i >= 0 {
+		parentMP = targetMP[:i]
+	}
 
 	// Find unique direct child nodes of the target
 	seen := map[string]bool{}
 	var childMPs []string
 	targetDepth := strings.Count(targetMP, "-") + 1
-	for _, pf := range childFiles {
+	for _, pf := range descendantFiles {
 		pfDepth := strings.Count(pf.MP, "-") + 1
 		if pfDepth == targetDepth+1 && !seen[pf.MP] {
 			seen[pf.MP] = true
@@ -371,9 +376,9 @@ func (s *OutlineService) promoteChildren(ctx context.Context, parsed []domain.Pa
 	renames := map[string]string{}
 	for i, childMP := range childMPs {
 		newMP := buildChildMP(parentMP, newNumbers[i])
-		for _, pf := range childFiles {
+		for _, pf := range descendantFiles {
 			if pf.MP == childMP {
-				oldName := domain.GenerateFilename(pf.MP, pf.SID, pf.DocType, pf.Slug)
+				oldName := generateName(pf)
 				newName := domain.GenerateFilename(newMP, pf.SID, pf.DocType, pf.Slug)
 				renames[oldName] = newName
 			}

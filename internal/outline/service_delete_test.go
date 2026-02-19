@@ -218,6 +218,44 @@ func TestOutlineService_Delete_Promote_RenumbersChildren(t *testing.T) {
 	}
 }
 
+func TestOutlineService_Delete_Promote_NestedNode(t *testing.T) {
+	// Promote children of a nested node (100-200), whose parent is 100
+	files := []string{
+		"100_SID001AABB_draft_part-one.md",
+		"100-200_SID002CCDD_draft_chapter.md",
+		"100-200-100_SID003EEFF_draft_section-one.md",
+		"100-400_SID004GGHH_draft_chapter-two.md",
+	}
+	deleter := &fakeFileDeleter{}
+	renamer := &fakeFileRenamer{}
+	svc := newDeleteTestService(files, deleter, renamer)
+
+	sel, _ := domain.ParseSelector("100-200")
+	result, err := svc.Delete(context.Background(), sel, domain.DeleteModePromote, true)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.FilesDeleted) != 1 {
+		t.Errorf("files_deleted count = %d, want 1 (target only)", len(result.FilesDeleted))
+	}
+	if len(result.FilesRenamed) != 1 {
+		t.Errorf("files_renamed count = %d, want 1 (promoted child)", len(result.FilesRenamed))
+	}
+	// Verify promoted child is at depth 2 (under parent 100)
+	for _, pair := range renamer.renames {
+		newName := pair[1]
+		pf, parseErr := domain.ParseFilename(newName)
+		if parseErr != nil {
+			t.Errorf("renamed file %q is not valid: %v", newName, parseErr)
+			continue
+		}
+		if pf.Depth != 2 {
+			t.Errorf("promoted file %q has depth %d, want 2", newName, pf.Depth)
+		}
+	}
+}
+
 func TestOutlineService_Delete_Promote_InsufficientGaps(t *testing.T) {
 	// Node 001 has 2 children, but siblings 002 and 003 leave no room
 	// After removing 001, occupied = {002, 003}. Only 1 gap available (position 001).
