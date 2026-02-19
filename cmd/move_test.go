@@ -20,13 +20,17 @@ type mockMoveRunner struct {
 	called   bool
 	selector string
 	to       string
+	before   string
+	after    string
 	apply    bool
 }
 
-func (m *mockMoveRunner) Move(ctx context.Context, selector string, to string, apply bool) (*MoveResult, error) {
+func (m *mockMoveRunner) Move(ctx context.Context, selector string, to string, before string, after string, apply bool) (*MoveResult, error) {
 	m.called = true
 	m.selector = selector
 	m.to = to
+	m.before = before
+	m.after = after
 	m.apply = apply
 	return m.result, m.err
 }
@@ -508,6 +512,93 @@ func TestMoveResult_MultipleRenames(t *testing.T) {
 	}
 	if len(output.Renames) != 2 {
 		t.Fatalf("renames count = %d, want 2", len(output.Renames))
+	}
+}
+
+func TestMoveCmd_ForwardsBeforeFlag(t *testing.T) {
+	runner := &mockMoveRunner{result: moveFixture()}
+	cmd, _ := newTestMoveCmd(runner, "001-200", "--to", "300", "--before", "400")
+
+	err := cmd.Execute()
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !runner.called {
+		t.Fatal("runner should be called")
+	}
+	if runner.before != "400" {
+		t.Errorf("before = %q, want %q", runner.before, "400")
+	}
+	if runner.after != "" {
+		t.Errorf("after = %q, want empty", runner.after)
+	}
+}
+
+func TestMoveCmd_ForwardsAfterFlag(t *testing.T) {
+	runner := &mockMoveRunner{result: moveFixture()}
+	cmd, _ := newTestMoveCmd(runner, "001-200", "--to", "300", "--after", "500")
+
+	err := cmd.Execute()
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !runner.called {
+		t.Fatal("runner should be called")
+	}
+	if runner.after != "500" {
+		t.Errorf("after = %q, want %q", runner.after, "500")
+	}
+	if runner.before != "" {
+		t.Errorf("before = %q, want empty", runner.before)
+	}
+}
+
+func TestMoveCmd_ForwardsPlacementFlags(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		wantBefore string
+		wantAfter  string
+	}{
+		{
+			name:       "before flag forwarded",
+			args:       []string{"001-200", "--to", "300", "--before", "400"},
+			wantBefore: "400",
+			wantAfter:  "",
+		},
+		{
+			name:       "after flag forwarded",
+			args:       []string{"001-200", "--to", "300", "--after", "500"},
+			wantBefore: "",
+			wantAfter:  "500",
+		},
+		{
+			name:       "no placement flags",
+			args:       []string{"001-200", "--to", "300"},
+			wantBefore: "",
+			wantAfter:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &mockMoveRunner{result: moveFixture()}
+			cmd, _ := newTestMoveCmd(runner, tt.args...)
+
+			err := cmd.Execute()
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if runner.before != tt.wantBefore {
+				t.Errorf("before = %q, want %q", runner.before, tt.wantBefore)
+			}
+			if runner.after != tt.wantAfter {
+				t.Errorf("after = %q, want %q", runner.after, tt.wantAfter)
+			}
+		})
 	}
 }
 

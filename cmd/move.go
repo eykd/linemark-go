@@ -16,7 +16,7 @@ type MoveResult struct {
 
 // MoveRunner defines the interface for running the move operation.
 type MoveRunner interface {
-	Move(ctx context.Context, selector string, to string, apply bool) (*MoveResult, error)
+	Move(ctx context.Context, selector string, to string, before string, after string, apply bool) (*MoveResult, error)
 }
 
 // NewMoveCmd creates the move command with the given runner.
@@ -49,7 +49,7 @@ func NewMoveCmd(runner MoveRunner) *cobra.Command {
 			}
 
 			isDryRun := GetDryRun()
-			result, err := runner.Move(cmd.Context(), selector, to, !isDryRun)
+			result, err := runner.Move(cmd.Context(), selector, to, before, after, !isDryRun)
 			if err != nil {
 				return err
 			}
