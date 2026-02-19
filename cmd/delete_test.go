@@ -22,7 +22,7 @@ type mockDeleteRunner struct {
 	apply    bool
 }
 
-func (m *mockDeleteRunner) Delete(ctx context.Context, selector string, apply bool) (*DeleteResult, error) {
+func (m *mockDeleteRunner) Delete(ctx context.Context, selector string, mode domain.DeleteMode, apply bool) (*DeleteResult, error) {
 	m.called = true
 	m.selector = selector
 	m.apply = apply

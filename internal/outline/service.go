@@ -18,6 +18,12 @@ var ErrNodeNotFound = errors.New("node not found")
 // ErrAmbiguousSelector is returned when a selector matches more than one node.
 var ErrAmbiguousSelector = errors.New("ambiguous selector")
 
+// ErrNodeHasChildren is returned when deleting a node with children in default mode.
+var ErrNodeHasChildren = errors.New("node has children; use --recursive or --promote")
+
+// ErrInsufficientGaps is returned when promoting children but not enough sibling gaps exist.
+var ErrInsufficientGaps = errors.New("insufficient gaps for promoted children")
+
 // DirectoryReader abstracts reading filenames from the project directory.
 type DirectoryReader interface {
 	ReadDir(ctx context.Context) ([]string, error)
@@ -37,6 +43,16 @@ type Locker interface {
 // SIDReserver abstracts reserving a new stable ID.
 type SIDReserver interface {
 	Reserve(ctx context.Context) (string, error)
+}
+
+// FileDeleter abstracts deleting files from the project directory.
+type FileDeleter interface {
+	DeleteFile(ctx context.Context, filename string) error
+}
+
+// FileRenamer abstracts renaming files in the project directory.
+type FileRenamer interface {
+	RenameFile(ctx context.Context, oldName, newName string) error
 }
 
 // OutlineBuilder abstracts building an Outline from parsed files.
@@ -83,6 +99,8 @@ type OutlineService struct {
 	locker   Locker
 	reserver SIDReserver
 	builder  OutlineBuilder
+	deleter  FileDeleter
+	renamer  FileRenamer
 }
 
 // NewOutlineService creates an OutlineService with the given dependencies.
@@ -213,6 +231,201 @@ func findNodeBySID(nodes []domain.Node, sid string) (domain.Node, error) {
 	default:
 		return domain.Node{}, ErrAmbiguousSelector
 	}
+}
+
+// DeleteResult holds the result of a delete operation at the service level.
+type DeleteResult struct {
+	FilesDeleted  []string
+	FilesRenamed  map[string]string
+	SIDsPreserved []string
+}
+
+// Delete removes a node from the outline, acquiring an advisory lock first.
+func (s *OutlineService) Delete(ctx context.Context, sel domain.Selector, mode domain.DeleteMode, apply bool) (*DeleteResult, error) {
+	if err := s.locker.TryLock(ctx); err != nil {
+		return nil, err
+	}
+	defer func() { _ = s.locker.Unlock() }()
+
+	files, err := s.reader.ReadDir(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse all filenames
+	var parsed []domain.ParsedFile
+	for _, f := range files {
+		pf, parseErr := domain.ParseFilename(f)
+		if parseErr == nil {
+			parsed = append(parsed, pf)
+		}
+	}
+
+	// Resolve the target node
+	targetMP, targetSID, err := resolveTarget(parsed, sel)
+	if err != nil {
+		return nil, err
+	}
+
+	// Collect files belonging to the target node
+	var targetFiles []string
+	for _, pf := range parsed {
+		if pf.MP == targetMP {
+			targetFiles = append(targetFiles, domain.GenerateFilename(pf.MP, pf.SID, pf.DocType, pf.Slug))
+		}
+	}
+
+	// Collect children (files whose MP starts with targetMP-)
+	var childFiles []domain.ParsedFile
+	for _, pf := range parsed {
+		if strings.HasPrefix(pf.MP, targetMP+"-") {
+			childFiles = append(childFiles, pf)
+		}
+	}
+
+	hasChildren := len(childFiles) > 0
+
+	if mode == domain.DeleteModeDefault {
+		if hasChildren {
+			return nil, ErrNodeHasChildren
+		}
+		return s.deleteFiles(ctx, targetFiles, nil, []string{targetSID}, apply)
+	}
+
+	if mode == domain.DeleteModeRecursive {
+		allFiles := append([]string{}, targetFiles...)
+		sidSet := map[string]bool{targetSID: true}
+		for _, pf := range childFiles {
+			allFiles = append(allFiles, domain.GenerateFilename(pf.MP, pf.SID, pf.DocType, pf.Slug))
+			sidSet[pf.SID] = true
+		}
+		var sids []string
+		for sid := range sidSet {
+			sids = append(sids, sid)
+		}
+		return s.deleteFiles(ctx, allFiles, nil, sids, apply)
+	}
+
+	// DeleteModePromote
+	return s.promoteChildren(ctx, parsed, targetMP, targetSID, targetFiles, childFiles, apply)
+}
+
+// resolveTarget finds the MP and SID of the node matching the selector.
+func resolveTarget(parsed []domain.ParsedFile, sel domain.Selector) (string, string, error) {
+	isSID := sel.Kind() == domain.SelectorSID
+	for _, pf := range parsed {
+		if isSID && pf.SID == sel.Value() {
+			return pf.MP, pf.SID, nil
+		}
+		if !isSID && pf.MP == sel.Value() {
+			return pf.MP, pf.SID, nil
+		}
+	}
+	return "", "", ErrNodeNotFound
+}
+
+// promoteChildren handles the promote delete mode.
+func (s *OutlineService) promoteChildren(ctx context.Context, parsed []domain.ParsedFile, targetMP, targetSID string, targetFiles []string, childFiles []domain.ParsedFile, apply bool) (*DeleteResult, error) {
+	// Find the parent MP of the target (empty string for root-level nodes).
+	// For "100" → "", for "100-200" → "100".
+	parentMP := strings.Join(strings.Split(targetMP, "-")[:strings.Count(targetMP, "-")], "-")
+
+	// Find unique direct child nodes of the target
+	seen := map[string]bool{}
+	var childMPs []string
+	targetDepth := strings.Count(targetMP, "-") + 1
+	for _, pf := range childFiles {
+		pfDepth := strings.Count(pf.MP, "-") + 1
+		if pfDepth == targetDepth+1 && !seen[pf.MP] {
+			seen[pf.MP] = true
+			childMPs = append(childMPs, pf.MP)
+		}
+	}
+
+	// Find occupied sibling numbers at the parent level (excluding the target)
+	var siblingNums []int
+	for _, pf := range parsed {
+		if isDirectChild(pf, parentMP) && pf.MP != targetMP {
+			n, _ := strconv.Atoi(pf.PathParts[len(pf.PathParts)-1])
+			siblingNums = append(siblingNums, n)
+		}
+	}
+
+	// Check for sufficient gaps to place all children
+	need := len(childMPs)
+	available := countAvailableGaps(siblingNums)
+	if available < need {
+		return nil, fmt.Errorf("%w: need %d slots, have %d", ErrInsufficientGaps, need, available)
+	}
+
+	// Assign new numbers for promoted children
+	occupied := append([]int{}, siblingNums...)
+	newNumbers := make([]int, need)
+	for i := range childMPs {
+		num, _ := domain.NextSiblingNumber(occupied)
+		newNumbers[i] = num
+		occupied = append(occupied, num)
+	}
+
+	// Build rename map
+	renames := map[string]string{}
+	for i, childMP := range childMPs {
+		newMP := buildChildMP(parentMP, newNumbers[i])
+		for _, pf := range childFiles {
+			if pf.MP == childMP {
+				oldName := domain.GenerateFilename(pf.MP, pf.SID, pf.DocType, pf.Slug)
+				newName := domain.GenerateFilename(newMP, pf.SID, pf.DocType, pf.Slug)
+				renames[oldName] = newName
+			}
+		}
+	}
+
+	return s.deleteFiles(ctx, targetFiles, renames, []string{targetSID}, apply)
+}
+
+// countAvailableGaps returns the number of available sibling positions
+// in the range [1, max(occupied)], excluding the occupied positions themselves.
+func countAvailableGaps(occupied []int) int {
+	unique := map[int]bool{}
+	maxNum := 0
+	for _, n := range occupied {
+		unique[n] = true
+		if n > maxNum {
+			maxNum = n
+		}
+	}
+	return maxNum - len(unique)
+}
+
+// deleteFiles performs the actual file deletions and renames, or just plans them.
+func (s *OutlineService) deleteFiles(ctx context.Context, toDelete []string, toRename map[string]string, sids []string, apply bool) (*DeleteResult, error) {
+	result := &DeleteResult{
+		FilesDeleted:  toDelete,
+		FilesRenamed:  toRename,
+		SIDsPreserved: sids,
+	}
+
+	if !apply {
+		return result, nil
+	}
+
+	// Perform renames first (before deletes)
+	if s.renamer != nil {
+		for oldName, newName := range toRename {
+			if err := s.renamer.RenameFile(ctx, oldName, newName); err != nil {
+				return nil, fmt.Errorf("rename %s -> %s: %w", oldName, newName, err)
+			}
+		}
+	}
+
+	// Perform deletes
+	for _, f := range toDelete {
+		if err := s.deleter.DeleteFile(ctx, f); err != nil {
+			return nil, fmt.Errorf("delete %s: %w", f, err)
+		}
+	}
+
+	return result, nil
 }
 
 // Add creates a new node in the outline, acquiring an advisory lock first.
