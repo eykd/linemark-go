@@ -1,6 +1,6 @@
 {
   "complete": true,
-  "reason": "All existing commands (check, doctor, compact, types) have --json wired via both local and global flags, with consistent result structs, human-readable defaults, and 100% test coverage including integration tests in json_output_test.go",
+  "reason": "All existing mutating commands (compact, types add, types remove) have --dry-run properly wired with apply parameter passthrough, Planned field on results, and comprehensive tests at 100% coverage; the listed files add/move/delete/rename do not exist yet as commands and are separate feature tasks",
   "remaining_items": [],
   "test_gaps": []
 }
