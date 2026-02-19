@@ -1,6 +1,6 @@
 {
   "complete": true,
-  "reason": "All 7 finding types implemented with correct severities matching the contract, both JSON and human output formats tested, read-only (no lock), 100% coverage on all non-Impl functions",
+  "reason": "All requirements implemented with comprehensive test coverage: --json outputs findings array with type/severity/message/path, summary with error/warning counts, exit code 2 when findings exist, exit code 0 when clean, and 100% coverage of non-Impl functions",
   "remaining_items": [],
   "test_gaps": []
 }

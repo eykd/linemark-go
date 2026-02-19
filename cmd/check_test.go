@@ -375,6 +375,77 @@ func TestCheckCmd_HumanReadableOutput_Summary(t *testing.T) {
 	}
 }
 
+func TestFindingsDetectedError_ExitCode(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      *FindingsDetectedError
+		wantCode int
+	}{
+		{
+			name:     "errors only",
+			err:      &FindingsDetectedError{Errors: 3, Warnings: 0},
+			wantCode: 2,
+		},
+		{
+			name:     "warnings only",
+			err:      &FindingsDetectedError{Errors: 0, Warnings: 2},
+			wantCode: 2,
+		},
+		{
+			name:     "mixed errors and warnings",
+			err:      &FindingsDetectedError{Errors: 1, Warnings: 1},
+			wantCode: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.err.ExitCode()
+			if got != tt.wantCode {
+				t.Errorf("ExitCode() = %d, want %d", got, tt.wantCode)
+			}
+		})
+	}
+}
+
+func TestExitCodeFromError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantCode int
+	}{
+		{
+			name:     "nil error returns 0",
+			err:      nil,
+			wantCode: 0,
+		},
+		{
+			name:     "generic error returns 1",
+			err:      fmt.Errorf("something went wrong"),
+			wantCode: 1,
+		},
+		{
+			name:     "findings detected returns 2",
+			err:      &FindingsDetectedError{Errors: 1, Warnings: 0},
+			wantCode: 2,
+		},
+		{
+			name:     "wrapped findings detected returns 2",
+			err:      fmt.Errorf("check failed: %w", &FindingsDetectedError{Errors: 2, Warnings: 1}),
+			wantCode: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExitCodeFromError(tt.err)
+			if got != tt.wantCode {
+				t.Errorf("ExitCodeFromError() = %d, want %d", got, tt.wantCode)
+			}
+		})
+	}
+}
+
 func TestCheckCmd_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
