@@ -3,6 +3,7 @@ package outline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,6 +11,12 @@ import (
 	"github.com/eykd/linemark-go/internal/domain"
 	"github.com/eykd/linemark-go/internal/slug"
 )
+
+// ErrNodeNotFound is returned when a selector matches no node.
+var ErrNodeNotFound = errors.New("node not found")
+
+// ErrAmbiguousSelector is returned when a selector matches more than one node.
+var ErrAmbiguousSelector = errors.New("ambiguous selector")
 
 // DirectoryReader abstracts reading filenames from the project directory.
 type DirectoryReader interface {
@@ -164,6 +171,41 @@ func (s *OutlineService) Load(ctx context.Context) (*LoadResult, error) {
 		Outline:  outline,
 		Findings: findings,
 	}, nil
+}
+
+// ResolveSelector loads the outline and returns the node matching the given selector.
+func (s *OutlineService) ResolveSelector(ctx context.Context, sel domain.Selector) (domain.Node, error) {
+	result, err := s.Load(ctx)
+	if err != nil {
+		return domain.Node{}, err
+	}
+
+	switch sel.Kind() {
+	case domain.SelectorMP:
+		for _, n := range result.Outline.Nodes {
+			if n.MP.String() == sel.Value() {
+				return n, nil
+			}
+		}
+		return domain.Node{}, ErrNodeNotFound
+	case domain.SelectorSID:
+		var matches []domain.Node
+		for _, n := range result.Outline.Nodes {
+			if n.SID == sel.Value() {
+				matches = append(matches, n)
+			}
+		}
+		switch len(matches) {
+		case 0:
+			return domain.Node{}, ErrNodeNotFound
+		case 1:
+			return matches[0], nil
+		default:
+			return domain.Node{}, ErrAmbiguousSelector
+		}
+	}
+
+	return domain.Node{}, ErrNodeNotFound
 }
 
 // Add creates a new node in the outline, acquiring an advisory lock first.
