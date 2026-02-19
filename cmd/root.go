@@ -12,6 +12,9 @@ var rootCmd *cobra.Command
 // verbose holds the global --verbose flag state.
 var verbose bool
 
+// jsonFlag holds the global --json flag state.
+var jsonFlag bool
+
 func init() {
 	rootCmd = NewRootCmd()
 	rootCmd.AddCommand(NewCheckCmd(nil))
@@ -26,6 +29,11 @@ func GetVerbose() bool {
 	return verbose
 }
 
+// GetJSON returns the current global --json flag state.
+func GetJSON() bool {
+	return jsonFlag
+}
+
 // NewRootCmd creates a new root command instance.
 // This is useful for testing to get a fresh command tree.
 func NewRootCmd() *cobra.Command {
@@ -37,6 +45,7 @@ func NewRootCmd() *cobra.Command {
 
 	// Add persistent flags (available to all subcommands)
 	cmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable debug logging to stderr")
+	cmd.PersistentFlags().BoolVar(&jsonFlag, "json", false, "Output results as JSON")
 
 	return cmd
 }

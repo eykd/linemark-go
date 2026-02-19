@@ -23,9 +23,9 @@ func NewDoctorCmd(runner CheckRunner, repairers ...RepairRunner) *cobra.Command 
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if applyFlag {
-				return runRepairAndReport(cmd, repairer, jsonOutput)
+				return runRepairAndReport(cmd, repairer, jsonOutput || GetJSON())
 			}
-			return runCheckAndReport(cmd, runner, jsonOutput)
+			return runCheckAndReport(cmd, runner, jsonOutput || GetJSON())
 		},
 	}
 

@@ -47,7 +47,7 @@ func NewCompactCmd(runner CompactRunner) *cobra.Command {
 				return err
 			}
 
-			if jsonOutput {
+			if jsonOutput || GetJSON() {
 				return writeCompactJSON(cmd, result)
 			}
 			return writeCompactHuman(cmd, result)

@@ -208,7 +208,7 @@ func NewCheckCmd(runner CheckRunner) *cobra.Command {
 		Short:        "Validate project structure and content",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCheckAndReport(cmd, runner, jsonOutput)
+			return runCheckAndReport(cmd, runner, jsonOutput || GetJSON())
 		},
 	}
 

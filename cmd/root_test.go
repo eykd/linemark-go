@@ -79,3 +79,25 @@ func TestExecuteContext_WithCancelledContext(t *testing.T) {
 	// The important thing is it doesn't panic
 	_ = err
 }
+
+func TestRootCommandJSONFlag(t *testing.T) {
+	cmd := NewRootCmd()
+
+	// Check that --json flag exists as a persistent flag
+	jsonFlag := cmd.PersistentFlags().Lookup("json")
+	if jsonFlag == nil {
+		t.Fatal("expected --json persistent flag to exist")
+	}
+
+	// Default should be false
+	if jsonFlag.DefValue != "false" {
+		t.Errorf("--json default = %q, want %q", jsonFlag.DefValue, "false")
+	}
+}
+
+func TestGetJSON(t *testing.T) {
+	// Default should be false
+	if GetJSON() {
+		t.Error("GetJSON() should default to false")
+	}
+}
