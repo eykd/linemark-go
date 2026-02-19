@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 // mockCompactRunner is a test double for CompactRunner.
@@ -26,16 +27,17 @@ func (m *mockCompactRunner) Compact(ctx context.Context, selector string, apply 
 	return m.result, m.err
 }
 
-// compactJSONOutput is a test-only type for parsing JSON output from lmk compact --json.
-type compactJSONOutput struct {
-	Renames       []compactJSONRename `json:"renames"`
-	FilesAffected int                 `json:"files_affected"`
-	Warning       *string             `json:"warning"`
-}
-
-type compactJSONRename struct {
-	Old string `json:"old"`
-	New string `json:"new"`
+// newTestCompactCmd creates a compact command wired to the given runner,
+// capturing stdout into the returned buffer.
+func newTestCompactCmd(runner *mockCompactRunner, args ...string) (*cobra.Command, *bytes.Buffer) {
+	cmd := NewCompactCmd(runner)
+	if len(args) > 0 {
+		cmd.SetArgs(args)
+	}
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(new(bytes.Buffer))
+	return cmd, buf
 }
 
 func TestCompactCmd_RegisteredWithRoot(t *testing.T) {
@@ -81,10 +83,7 @@ func TestCompactCmd_ReportMode_NoRenames(t *testing.T) {
 	runner := &mockCompactRunner{
 		result: &CompactResult{},
 	}
-	cmd := NewCompactCmd(runner)
-	buf := new(bytes.Buffer)
-	cmd.SetOut(buf)
-	cmd.SetErr(new(bytes.Buffer))
+	cmd, _ := newTestCompactCmd(runner)
 
 	err := cmd.Execute()
 
@@ -100,11 +99,7 @@ func TestCompactCmd_ReportMode_NoRenames_JSON(t *testing.T) {
 	runner := &mockCompactRunner{
 		result: &CompactResult{},
 	}
-	cmd := NewCompactCmd(runner)
-	cmd.SetArgs([]string{"--json"})
-	buf := new(bytes.Buffer)
-	cmd.SetOut(buf)
-	cmd.SetErr(new(bytes.Buffer))
+	cmd, buf := newTestCompactCmd(runner, "--json")
 
 	err := cmd.Execute()
 
@@ -112,7 +107,7 @@ func TestCompactCmd_ReportMode_NoRenames_JSON(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	var output compactJSONOutput
+	var output CompactResult
 	if jsonErr := json.Unmarshal(buf.Bytes(), &output); jsonErr != nil {
 		t.Fatalf("invalid JSON output: %v\nraw: %s", jsonErr, buf.String())
 	}
@@ -137,11 +132,7 @@ func TestCompactCmd_ReportMode_WithRenames_JSON(t *testing.T) {
 			FilesAffected: 2,
 		},
 	}
-	cmd := NewCompactCmd(runner)
-	cmd.SetArgs([]string{"--json"})
-	buf := new(bytes.Buffer)
-	cmd.SetOut(buf)
-	cmd.SetErr(new(bytes.Buffer))
+	cmd, buf := newTestCompactCmd(runner, "--json")
 
 	err := cmd.Execute()
 
@@ -149,7 +140,7 @@ func TestCompactCmd_ReportMode_WithRenames_JSON(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	var output compactJSONOutput
+	var output CompactResult
 	if jsonErr := json.Unmarshal(buf.Bytes(), &output); jsonErr != nil {
 		t.Fatalf("invalid JSON: %v\nraw: %s", jsonErr, buf.String())
 	}
@@ -180,11 +171,7 @@ func TestCompactCmd_ReportMode_HumanReadableOutput(t *testing.T) {
 			FilesAffected: 2,
 		},
 	}
-	cmd := NewCompactCmd(runner)
-	// No --json flag: human-readable output
-	buf := new(bytes.Buffer)
-	cmd.SetOut(buf)
-	cmd.SetErr(new(bytes.Buffer))
+	cmd, buf := newTestCompactCmd(runner)
 
 	err := cmd.Execute()
 
@@ -215,10 +202,7 @@ func TestCompactCmd_ReportMode_HumanReadable_Summary(t *testing.T) {
 			FilesAffected: 3,
 		},
 	}
-	cmd := NewCompactCmd(runner)
-	buf := new(bytes.Buffer)
-	cmd.SetOut(buf)
-	cmd.SetErr(new(bytes.Buffer))
+	cmd, buf := newTestCompactCmd(runner)
 
 	_ = cmd.Execute()
 
@@ -232,11 +216,7 @@ func TestCompactCmd_ApplyMode_NoRenames(t *testing.T) {
 	runner := &mockCompactRunner{
 		result: &CompactResult{},
 	}
-	cmd := NewCompactCmd(runner)
-	cmd.SetArgs([]string{"--apply"})
-	buf := new(bytes.Buffer)
-	cmd.SetOut(buf)
-	cmd.SetErr(new(bytes.Buffer))
+	cmd, _ := newTestCompactCmd(runner, "--apply")
 
 	err := cmd.Execute()
 
@@ -252,11 +232,7 @@ func TestCompactCmd_ApplyMode_NoRenames_JSON(t *testing.T) {
 	runner := &mockCompactRunner{
 		result: &CompactResult{},
 	}
-	cmd := NewCompactCmd(runner)
-	cmd.SetArgs([]string{"--apply", "--json"})
-	buf := new(bytes.Buffer)
-	cmd.SetOut(buf)
-	cmd.SetErr(new(bytes.Buffer))
+	cmd, buf := newTestCompactCmd(runner, "--apply", "--json")
 
 	err := cmd.Execute()
 
@@ -264,7 +240,7 @@ func TestCompactCmd_ApplyMode_NoRenames_JSON(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	var output compactJSONOutput
+	var output CompactResult
 	if jsonErr := json.Unmarshal(buf.Bytes(), &output); jsonErr != nil {
 		t.Fatalf("invalid JSON: %v\nraw: %s", jsonErr, buf.String())
 	}
@@ -287,11 +263,7 @@ func TestCompactCmd_ApplyMode_WithRenames_JSON(t *testing.T) {
 			FilesAffected: 3,
 		},
 	}
-	cmd := NewCompactCmd(runner)
-	cmd.SetArgs([]string{"--apply", "--json"})
-	buf := new(bytes.Buffer)
-	cmd.SetOut(buf)
-	cmd.SetErr(new(bytes.Buffer))
+	cmd, buf := newTestCompactCmd(runner, "--apply", "--json")
 
 	err := cmd.Execute()
 
@@ -299,7 +271,7 @@ func TestCompactCmd_ApplyMode_WithRenames_JSON(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	var output compactJSONOutput
+	var output CompactResult
 	if jsonErr := json.Unmarshal(buf.Bytes(), &output); jsonErr != nil {
 		t.Fatalf("invalid JSON: %v\nraw: %s", jsonErr, buf.String())
 	}
@@ -323,11 +295,7 @@ func TestCompactCmd_ApplyMode_HumanReadableOutput(t *testing.T) {
 			FilesAffected: 1,
 		},
 	}
-	cmd := NewCompactCmd(runner)
-	cmd.SetArgs([]string{"--apply"})
-	buf := new(bytes.Buffer)
-	cmd.SetOut(buf)
-	cmd.SetErr(new(bytes.Buffer))
+	cmd, buf := newTestCompactCmd(runner, "--apply")
 
 	err := cmd.Execute()
 
@@ -353,11 +321,7 @@ func TestCompactCmd_Warning_MoreThan50Files(t *testing.T) {
 			Warning:       &warning,
 		},
 	}
-	cmd := NewCompactCmd(runner)
-	cmd.SetArgs([]string{"--json"})
-	buf := new(bytes.Buffer)
-	cmd.SetOut(buf)
-	cmd.SetErr(new(bytes.Buffer))
+	cmd, buf := newTestCompactCmd(runner, "--json")
 
 	err := cmd.Execute()
 
@@ -365,7 +329,7 @@ func TestCompactCmd_Warning_MoreThan50Files(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	var output compactJSONOutput
+	var output CompactResult
 	if jsonErr := json.Unmarshal(buf.Bytes(), &output); jsonErr != nil {
 		t.Fatalf("invalid JSON: %v\nraw: %s", jsonErr, buf.String())
 	}
@@ -386,10 +350,7 @@ func TestCompactCmd_Warning_HumanReadable(t *testing.T) {
 			Warning:       &warning,
 		},
 	}
-	cmd := NewCompactCmd(runner)
-	buf := new(bytes.Buffer)
-	cmd.SetOut(buf)
-	cmd.SetErr(new(bytes.Buffer))
+	cmd, buf := newTestCompactCmd(runner)
 
 	_ = cmd.Execute()
 
@@ -406,11 +367,7 @@ func TestCompactCmd_NoWarning_50OrFewerFiles(t *testing.T) {
 			FilesAffected: 50,
 		},
 	}
-	cmd := NewCompactCmd(runner)
-	cmd.SetArgs([]string{"--json"})
-	buf := new(bytes.Buffer)
-	cmd.SetOut(buf)
-	cmd.SetErr(new(bytes.Buffer))
+	cmd, buf := newTestCompactCmd(runner, "--json")
 
 	err := cmd.Execute()
 
@@ -418,7 +375,7 @@ func TestCompactCmd_NoWarning_50OrFewerFiles(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	var output compactJSONOutput
+	var output CompactResult
 	if jsonErr := json.Unmarshal(buf.Bytes(), &output); jsonErr != nil {
 		t.Fatalf("invalid JSON: %v\nraw: %s", jsonErr, buf.String())
 	}
@@ -455,10 +412,7 @@ func TestCompactCmd_SelectorArgument(t *testing.T) {
 			runner := &mockCompactRunner{
 				result: &CompactResult{},
 			}
-			cmd := NewCompactCmd(runner)
-			cmd.SetArgs(tt.args)
-			cmd.SetOut(new(bytes.Buffer))
-			cmd.SetErr(new(bytes.Buffer))
+			cmd, _ := newTestCompactCmd(runner, tt.args...)
 
 			err := cmd.Execute()
 
@@ -476,9 +430,7 @@ func TestCompactCmd_ServiceError(t *testing.T) {
 	runner := &mockCompactRunner{
 		err: fmt.Errorf("filesystem error"),
 	}
-	cmd := NewCompactCmd(runner)
-	cmd.SetOut(new(bytes.Buffer))
-	cmd.SetErr(new(bytes.Buffer))
+	cmd, _ := newTestCompactCmd(runner)
 
 	err := cmd.Execute()
 
@@ -494,9 +446,7 @@ func TestCompactCmd_ServiceError_NotExitCoder(t *testing.T) {
 	runner := &mockCompactRunner{
 		err: fmt.Errorf("filesystem error"),
 	}
-	cmd := NewCompactCmd(runner)
-	cmd.SetOut(new(bytes.Buffer))
-	cmd.SetErr(new(bytes.Buffer))
+	cmd, _ := newTestCompactCmd(runner)
 
 	err := cmd.Execute()
 
@@ -513,9 +463,7 @@ func TestCompactCmd_ContextCancellation(t *testing.T) {
 	runner := &mockCompactRunner{
 		err: ctx.Err(),
 	}
-	cmd := NewCompactCmd(runner)
-	cmd.SetOut(new(bytes.Buffer))
-	cmd.SetErr(new(bytes.Buffer))
+	cmd, _ := newTestCompactCmd(runner)
 
 	err := cmd.Execute()
 
@@ -547,12 +495,7 @@ func TestCompactCmd_ApplyPassedToService(t *testing.T) {
 			runner := &mockCompactRunner{
 				result: &CompactResult{},
 			}
-			cmd := NewCompactCmd(runner)
-			if tt.args != nil {
-				cmd.SetArgs(tt.args)
-			}
-			cmd.SetOut(new(bytes.Buffer))
-			cmd.SetErr(new(bytes.Buffer))
+			cmd, _ := newTestCompactCmd(runner, tt.args...)
 
 			err := cmd.Execute()
 
@@ -570,9 +513,7 @@ func TestCompactCmd_ServiceCalled(t *testing.T) {
 	runner := &mockCompactRunner{
 		result: &CompactResult{},
 	}
-	cmd := NewCompactCmd(runner)
-	cmd.SetOut(new(bytes.Buffer))
-	cmd.SetErr(new(bytes.Buffer))
+	cmd, _ := newTestCompactCmd(runner)
 
 	err := cmd.Execute()
 
@@ -583,6 +524,3 @@ func TestCompactCmd_ServiceCalled(t *testing.T) {
 		t.Error("compact runner should be called on execute")
 	}
 }
-
-// Ensure unused imports are consumed for compilation.
-var _ = errors.As
