@@ -1,6 +1,6 @@
 {
   "complete": true,
-  "reason": "All requirements implemented with comprehensive test coverage: TryLock/Unlock wrapping gofrs/flock via Flocker interface, Locker interface satisfied, context cancellation respected, DefaultPath constant, 100% statement coverage, all quality gates pass",
+  "reason": "All requirements implemented with comprehensive test coverage: --json, --verbose/-v, --dry-run persistent flags; context.Context wired via ExecuteContext; 100% coverage; all tests pass",
   "remaining_items": [],
   "test_gaps": []
 }
