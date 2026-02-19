@@ -1,6 +1,6 @@
 {
   "complete": true,
-  "reason": "All three subcommands (list/add/remove) are implemented with human and JSON output modes, proper argument validation, error propagation, and 100% test coverage of all non-Impl functions.",
+  "reason": "All requirements implemented with comprehensive test coverage: TryLock fail-fast in lock package, OutlineService locking for all mutating commands, defer-based unlock on success and error, clear error message, context cancellation, and 100% coverage across lock and outline packages",
   "remaining_items": [],
   "test_gaps": []
 }
