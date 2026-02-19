@@ -8,12 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// RenameEntry represents a single file rename operation.
-type RenameEntry struct {
-	Old string `json:"old"`
-	New string `json:"new"`
-}
-
 // CompactResult holds the outcome of a compact operation.
 type CompactResult struct {
 	Renames       []RenameEntry `json:"renames"`

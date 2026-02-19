@@ -501,7 +501,7 @@ func (s *OutlineService) Delete(ctx context.Context, sel domain.Selector, mode d
 	var descendantFiles []domain.ParsedFile
 	for _, pf := range parsed {
 		if pf.MP == targetMP {
-			targetFiles = append(targetFiles, generateName(pf))
+			targetFiles = append(targetFiles, reconstructFilename(pf))
 		} else if isDescendantMP(pf.MP, targetMP) {
 			descendantFiles = append(descendantFiles, pf)
 		}
@@ -519,7 +519,7 @@ func (s *OutlineService) Delete(ctx context.Context, sel domain.Selector, mode d
 		allFiles := append([]string{}, targetFiles...)
 		sidSet := map[string]bool{targetSID: true}
 		for _, pf := range descendantFiles {
-			allFiles = append(allFiles, generateName(pf))
+			allFiles = append(allFiles, reconstructFilename(pf))
 			sidSet[pf.SID] = true
 		}
 		var sids []string
@@ -558,13 +558,7 @@ func (s *OutlineService) Move(ctx context.Context, source, target domain.Selecto
 	}
 
 	// Collect existing children at the target level (excluding the source being moved)
-	var occupied []int
-	for _, pf := range parsed {
-		if isDirectChild(pf, targetMP) && pf.MP != sourceMP {
-			n, _ := strconv.Atoi(pf.PathParts[len(pf.PathParts)-1])
-			occupied = append(occupied, n)
-		}
-	}
+	occupied := collectOccupiedChildNums(parsed, targetMP, sourceMP)
 
 	var nextNum int
 	var numErr error
@@ -588,7 +582,7 @@ func (s *OutlineService) Move(ctx context.Context, source, target domain.Selecto
 	renames := map[string]string{}
 	for _, pf := range parsed {
 		if pf.MP == sourceMP || isDescendantMP(pf.MP, sourceMP) {
-			oldName := generateName(pf)
+			oldName := reconstructFilename(pf)
 			newMP := newSourceMP + pf.MP[len(sourceMP):]
 			newName := domain.GenerateFilename(newMP, pf.SID, pf.DocType, pf.Slug)
 			renames[oldName] = newName
@@ -670,7 +664,7 @@ func (s *OutlineService) compactChildrenImpl(parsed []domain.ParsedFile, parentM
 
 		for _, pf := range parsed {
 			if pf.MP == oldChildMP || isDescendantMP(pf.MP, oldChildMP) {
-				oldName := generateName(pf)
+				oldName := reconstructFilename(pf)
 				newMP := newChildMP + pf.MP[len(oldChildMP):]
 				newName := domain.GenerateFilename(newMP, pf.SID, pf.DocType, pf.Slug)
 				if oldName != newName {
@@ -717,9 +711,10 @@ func (s *OutlineService) renameImpl(ctx context.Context, selector, newTitle stri
 		return nil, err
 	}
 
-	// Find the draft file to get the old title
+	// Find the draft file and read its content once for both title extraction and frontmatter update.
 	var draftFile domain.ParsedFile
 	var foundDraft bool
+	var draftContent string
 	for _, pf := range parsed {
 		if pf.MP == nodeMP && pf.DocType == domain.DocTypeDraft {
 			draftFile = pf
@@ -730,9 +725,9 @@ func (s *OutlineService) renameImpl(ctx context.Context, selector, newTitle stri
 
 	var oldTitle string
 	if foundDraft {
-		oldFilename := generateName(draftFile)
-		content, err := s.contentReader.ReadFile(ctx, oldFilename)
+		content, err := s.contentReader.ReadFile(ctx, reconstructFilename(draftFile))
 		if err == nil {
+			draftContent = content
 			oldTitle, _ = s.fmHandler.GetTitle(content)
 		}
 	}
@@ -742,7 +737,7 @@ func (s *OutlineService) renameImpl(ctx context.Context, selector, newTitle stri
 
 	for _, pf := range parsed {
 		if pf.MP == nodeMP && pf.DocType == domain.DocTypeDraft {
-			oldName := generateName(pf)
+			oldName := reconstructFilename(pf)
 			newName := domain.GenerateFilename(pf.MP, pf.SID, pf.DocType, newSlug)
 			if oldName != newName {
 				renames[oldName] = newName
@@ -764,17 +759,13 @@ func (s *OutlineService) renameImpl(ctx context.Context, selector, newTitle stri
 		return nil, err
 	}
 
-	// Update frontmatter title in the draft file and write to new filename
-	if foundDraft {
-		oldFilename := generateName(draftFile)
-		content, err := s.contentReader.ReadFile(ctx, oldFilename)
+	// Update frontmatter title using the already-read content
+	if foundDraft && draftContent != "" {
+		updatedContent, err := s.fmHandler.SetTitle(draftContent, newTitle)
 		if err == nil {
-			updatedContent, err := s.fmHandler.SetTitle(content, newTitle)
-			if err == nil {
-				newFilename := domain.GenerateFilename(nodeMP, nodeSID, domain.DocTypeDraft, newSlug)
-				if writeErr := s.writer.WriteFile(ctx, newFilename, updatedContent); writeErr != nil {
-					return nil, writeErr
-				}
+			newFilename := domain.GenerateFilename(nodeMP, nodeSID, domain.DocTypeDraft, newSlug)
+			if writeErr := s.writer.WriteFile(ctx, newFilename, updatedContent); writeErr != nil {
+				return nil, writeErr
 			}
 		}
 	}
@@ -860,8 +851,8 @@ func parseFilesWithFindings(files []string) ([]domain.ParsedFile, []domain.Findi
 	return parsed, findings
 }
 
-// generateName reconstructs the filename from a ParsedFile's components.
-func generateName(pf domain.ParsedFile) string {
+// reconstructFilename rebuilds the canonical filename from a ParsedFile's components.
+func reconstructFilename(pf domain.ParsedFile) string {
 	return domain.GenerateFilename(pf.MP, pf.SID, pf.DocType, pf.Slug)
 }
 
@@ -900,13 +891,7 @@ func (s *OutlineService) promoteChildren(ctx context.Context, parsed []domain.Pa
 	}
 
 	// Find occupied sibling numbers at the parent level (excluding the target)
-	var siblingNums []int
-	for _, pf := range parsed {
-		if isDirectChild(pf, parentMP) && pf.MP != targetMP {
-			n, _ := strconv.Atoi(pf.PathParts[len(pf.PathParts)-1])
-			siblingNums = append(siblingNums, n)
-		}
-	}
+	siblingNums := collectOccupiedChildNums(parsed, parentMP, targetMP)
 
 	// Check for sufficient gaps to place all children
 	need := len(childMPs)
@@ -930,7 +915,7 @@ func (s *OutlineService) promoteChildren(ctx context.Context, parsed []domain.Pa
 		newMP := buildChildMP(parentMP, newNumbers[i])
 		for _, pf := range descendantFiles {
 			if pf.MP == childMP {
-				oldName := generateName(pf)
+				oldName := reconstructFilename(pf)
 				newName := domain.GenerateFilename(newMP, pf.SID, pf.DocType, pf.Slug)
 				renames[oldName] = newName
 			}
@@ -1082,6 +1067,19 @@ func isDirectChild(pf domain.ParsedFile, parentMP string) bool {
 	}
 	parentDepth := strings.Count(parentMP, "-") + 1
 	return isDescendantMP(pf.MP, parentMP) && pf.Depth == parentDepth+1
+}
+
+// collectOccupiedChildNums returns occupied sibling numbers at the child level of parentMP,
+// excluding any files whose MP matches excludeMP.
+func collectOccupiedChildNums(parsed []domain.ParsedFile, parentMP, excludeMP string) []int {
+	var nums []int
+	for _, pf := range parsed {
+		if isDirectChild(pf, parentMP) && pf.MP != excludeMP {
+			n, _ := strconv.Atoi(pf.PathParts[len(pf.PathParts)-1])
+			nums = append(nums, n)
+		}
+	}
+	return nums
 }
 
 // collectChildNumbers returns the occupied sibling numbers under parentMP.
