@@ -23,6 +23,7 @@ type TypesListResult struct {
 type TypesModifyResult struct {
 	Node     NodeInfo `json:"node"`
 	Filename string   `json:"filename"`
+	Planned  bool     `json:"planned"`
 }
 
 // TypesService defines the interface for managing document types.
@@ -91,6 +92,10 @@ func newTypesAddCmd(svc TypesService) *cobra.Command {
 				return err
 			}
 
+			if GetDryRun() {
+				result.Planned = true
+			}
+
 			if jsonOutput || GetJSON() {
 				writeJSON(cmd.OutOrStdout(), result)
 			} else {
@@ -117,6 +122,10 @@ func newTypesRemoveCmd(svc TypesService) *cobra.Command {
 			result, err := svc.RemoveType(cmd.Context(), args[0], args[1])
 			if err != nil {
 				return err
+			}
+
+			if GetDryRun() {
+				result.Planned = true
 			}
 
 			if jsonOutput || GetJSON() {

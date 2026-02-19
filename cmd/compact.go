@@ -20,6 +20,7 @@ type CompactResult struct {
 	Renames       []RenameEntry `json:"renames"`
 	FilesAffected int           `json:"files_affected"`
 	Warning       *string       `json:"warning"`
+	Planned       bool          `json:"planned"`
 }
 
 // CompactRunner executes the compact operation.
@@ -43,9 +44,18 @@ func NewCompactCmd(runner CompactRunner) *cobra.Command {
 				selector = args[0]
 			}
 
-			result, err := runner.Compact(cmd.Context(), selector, applyFlag)
+			apply := applyFlag
+			if GetDryRun() {
+				apply = false
+			}
+
+			result, err := runner.Compact(cmd.Context(), selector, apply)
 			if err != nil {
 				return err
+			}
+
+			if GetDryRun() {
+				result.Planned = true
 			}
 
 			if jsonOutput || GetJSON() {
