@@ -14,6 +14,12 @@ type Locker interface {
 // ModifyResult holds the result of a mutating outline operation.
 type ModifyResult struct{}
 
+// ListResult holds the result of listing document types.
+type ListResult struct{}
+
+// CheckResult holds the result of checking the outline.
+type CheckResult struct{}
+
 // OutlineService coordinates outline mutations with advisory locking.
 type OutlineService struct {
 	locker Locker
@@ -42,4 +48,14 @@ func (s *OutlineService) RemoveType(ctx context.Context, docType, selector strin
 	defer s.locker.Unlock()
 
 	return &ModifyResult{}, nil
+}
+
+// ListTypes lists document types for a node without acquiring an advisory lock.
+func (s *OutlineService) ListTypes(ctx context.Context, selector string) (*ListResult, error) {
+	return &ListResult{}, nil
+}
+
+// Check validates the outline without acquiring an advisory lock.
+func (s *OutlineService) Check(ctx context.Context) (*CheckResult, error) {
+	return &CheckResult{}, nil
 }
