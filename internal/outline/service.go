@@ -1,0 +1,45 @@
+// Package outline provides the application service for managing outline operations.
+package outline
+
+import (
+	"context"
+)
+
+// Locker abstracts advisory lock acquisition for mutating commands.
+type Locker interface {
+	TryLock(ctx context.Context) error
+	Unlock() error
+}
+
+// ModifyResult holds the result of a mutating outline operation.
+type ModifyResult struct{}
+
+// OutlineService coordinates outline mutations with advisory locking.
+type OutlineService struct {
+	locker Locker
+}
+
+// NewOutlineService creates an OutlineService with the given Locker.
+func NewOutlineService(locker Locker) *OutlineService {
+	return &OutlineService{locker: locker}
+}
+
+// AddType adds a document type to a node, acquiring an advisory lock first.
+func (s *OutlineService) AddType(ctx context.Context, docType, selector string) (*ModifyResult, error) {
+	if err := s.locker.TryLock(ctx); err != nil {
+		return nil, err
+	}
+	defer s.locker.Unlock()
+
+	return &ModifyResult{}, nil
+}
+
+// RemoveType removes a document type from a node, acquiring an advisory lock first.
+func (s *OutlineService) RemoveType(ctx context.Context, docType, selector string) (*ModifyResult, error) {
+	if err := s.locker.TryLock(ctx); err != nil {
+		return nil, err
+	}
+	defer s.locker.Unlock()
+
+	return &ModifyResult{}, nil
+}
