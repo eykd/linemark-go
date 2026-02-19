@@ -25,6 +25,7 @@ func init() {
 	rootCmd.AddCommand(NewDoctorCmd(nil))
 	rootCmd.AddCommand(NewTypesCmd(nil))
 	rootCmd.AddCommand(NewCompactCmd(nil))
+	rootCmd.AddCommand(NewListCmd(nil))
 }
 
 // GetVerbose returns the current verbose flag state.
