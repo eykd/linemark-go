@@ -94,6 +94,58 @@ func TestOutlineService_MutatingCommands_Locking(t *testing.T) {
 	}
 }
 
+func TestOutlineService_ReadOnlyCommands_BypassLocking(t *testing.T) {
+	type readOnlyFn func(ctx context.Context) error
+
+	commands := []struct {
+		name string
+		call func(*OutlineService) readOnlyFn
+	}{
+		{"ListTypes", func(s *OutlineService) readOnlyFn {
+			return func(ctx context.Context) error {
+				_, err := s.ListTypes(ctx, "001")
+				return err
+			}
+		}},
+		{"Check", func(s *OutlineService) readOnlyFn {
+			return func(ctx context.Context) error {
+				_, err := s.Check(ctx)
+				return err
+			}
+		}},
+	}
+
+	tests := []struct {
+		name       string
+		tryLockErr error
+	}{
+		{"succeeds without lock contention", nil},
+		{"succeeds with lock pre-acquired", lock.ErrAlreadyLocked},
+	}
+
+	for _, cmd := range commands {
+		for _, tt := range tests {
+			t.Run(cmd.name+"/"+tt.name, func(t *testing.T) {
+				locker := &mockLocker{tryLockErr: tt.tryLockErr}
+				svc := NewOutlineService(locker)
+				fn := cmd.call(svc)
+
+				err := fn(context.Background())
+
+				if err != nil {
+					t.Errorf("read-only command should succeed, got: %v", err)
+				}
+				if locker.tryLockCalled {
+					t.Error("read-only command should not call TryLock")
+				}
+				if locker.unlockCalled {
+					t.Error("read-only command should not call Unlock")
+				}
+			})
+		}
+	}
+}
+
 func TestOutlineService_ErrAlreadyLocked_HasClearMessage(t *testing.T) {
 	locker := &mockLocker{tryLockErr: lock.ErrAlreadyLocked}
 	svc := NewOutlineService(locker)
