@@ -29,8 +29,8 @@ type TypesModifyResult struct {
 // TypesService defines the interface for managing document types.
 type TypesService interface {
 	ListTypes(ctx context.Context, selector string) (*TypesListResult, error)
-	AddType(ctx context.Context, docType, selector string) (*TypesModifyResult, error)
-	RemoveType(ctx context.Context, docType, selector string) (*TypesModifyResult, error)
+	AddType(ctx context.Context, docType, selector string, apply bool) (*TypesModifyResult, error)
+	RemoveType(ctx context.Context, docType, selector string, apply bool) (*TypesModifyResult, error)
 }
 
 // NewTypesCmd creates the types command with the given service.
@@ -87,12 +87,13 @@ func newTypesAddCmd(svc TypesService) *cobra.Command {
 		Args:         cobra.ExactArgs(2),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := svc.AddType(cmd.Context(), args[0], args[1])
+			isDryRun := GetDryRun()
+			result, err := svc.AddType(cmd.Context(), args[0], args[1], !isDryRun)
 			if err != nil {
 				return err
 			}
 
-			if GetDryRun() {
+			if isDryRun {
 				result.Planned = true
 			}
 
@@ -119,12 +120,13 @@ func newTypesRemoveCmd(svc TypesService) *cobra.Command {
 		Args:         cobra.ExactArgs(2),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := svc.RemoveType(cmd.Context(), args[0], args[1])
+			isDryRun := GetDryRun()
+			result, err := svc.RemoveType(cmd.Context(), args[0], args[1], !isDryRun)
 			if err != nil {
 				return err
 			}
 
-			if GetDryRun() {
+			if isDryRun {
 				result.Planned = true
 			}
 

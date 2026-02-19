@@ -23,11 +23,11 @@ func (m *mockTypesService) ListTypes(ctx context.Context, selector string) (*Typ
 	return m.listResult, m.listErr
 }
 
-func (m *mockTypesService) AddType(ctx context.Context, docType, selector string) (*TypesModifyResult, error) {
+func (m *mockTypesService) AddType(ctx context.Context, docType, selector string, apply bool) (*TypesModifyResult, error) {
 	return m.addResult, m.addErr
 }
 
-func (m *mockTypesService) RemoveType(ctx context.Context, docType, selector string) (*TypesModifyResult, error) {
+func (m *mockTypesService) RemoveType(ctx context.Context, docType, selector string, apply bool) (*TypesModifyResult, error) {
 	return m.removeResult, m.removeErr
 }
 
