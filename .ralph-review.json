@@ -1,6 +1,6 @@
 {
   "complete": true,
-  "reason": "All cmd-layer requirements implemented with 100% coverage: report/apply modes, selector argument, --json output, warning for >50 files, error propagation, and context cancellation all tested. Domain concerns (lock, SIDs, 100-spacing) properly delegated to CompactRunner interface.",
+  "reason": "All existing commands (check, doctor, compact, types) have --json wired via both local and global flags, with consistent result structs, human-readable defaults, and 100% test coverage including integration tests in json_output_test.go",
   "remaining_items": [],
   "test_gaps": []
 }
