@@ -19,14 +19,8 @@ type TypesListResult struct {
 	Types []string `json:"types"`
 }
 
-// TypesAddResult holds the result of adding a type to a node.
-type TypesAddResult struct {
-	Node     NodeInfo `json:"node"`
-	Filename string   `json:"filename"`
-}
-
-// TypesRemoveResult holds the result of removing a type from a node.
-type TypesRemoveResult struct {
+// TypesModifyResult holds the result of adding or removing a type.
+type TypesModifyResult struct {
 	Node     NodeInfo `json:"node"`
 	Filename string   `json:"filename"`
 }
@@ -34,8 +28,8 @@ type TypesRemoveResult struct {
 // TypesService defines the interface for managing document types.
 type TypesService interface {
 	ListTypes(ctx context.Context, selector string) (*TypesListResult, error)
-	AddType(ctx context.Context, docType, selector string) (*TypesAddResult, error)
-	RemoveType(ctx context.Context, docType, selector string) (*TypesRemoveResult, error)
+	AddType(ctx context.Context, docType, selector string) (*TypesModifyResult, error)
+	RemoveType(ctx context.Context, docType, selector string) (*TypesModifyResult, error)
 }
 
 // NewTypesCmd creates the types command with the given service.

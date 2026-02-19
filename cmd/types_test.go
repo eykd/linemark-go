@@ -11,23 +11,23 @@ import (
 
 // mockTypesService is a test double for TypesService.
 type mockTypesService struct {
-	listResult  *TypesListResult
-	listErr     error
-	addResult   *TypesAddResult
-	addErr      error
-	removeResult *TypesRemoveResult
-	removeErr   error
+	listResult   *TypesListResult
+	listErr      error
+	addResult    *TypesModifyResult
+	addErr       error
+	removeResult *TypesModifyResult
+	removeErr    error
 }
 
 func (m *mockTypesService) ListTypes(ctx context.Context, selector string) (*TypesListResult, error) {
 	return m.listResult, m.listErr
 }
 
-func (m *mockTypesService) AddType(ctx context.Context, docType, selector string) (*TypesAddResult, error) {
+func (m *mockTypesService) AddType(ctx context.Context, docType, selector string) (*TypesModifyResult, error) {
 	return m.addResult, m.addErr
 }
 
-func (m *mockTypesService) RemoveType(ctx context.Context, docType, selector string) (*TypesRemoveResult, error) {
+func (m *mockTypesService) RemoveType(ctx context.Context, docType, selector string) (*TypesModifyResult, error) {
 	return m.removeResult, m.removeErr
 }
 
@@ -84,7 +84,7 @@ func TestTypesCmd_HasSubcommands(t *testing.T) {
 func TestTypesListCmd_HumanOutput(t *testing.T) {
 	svc := &mockTypesService{
 		listResult: &TypesListResult{
-			Node: NodeInfo{MP: "001", SID: "A3F7c9Qx7Lm2"},
+			Node:  NodeInfo{MP: "001", SID: "A3F7c9Qx7Lm2"},
 			Types: []string{"draft", "notes"},
 		},
 	}
@@ -205,7 +205,7 @@ func TestTypesListCmd_ContextCancellation(t *testing.T) {
 
 func TestTypesAddCmd_HumanOutput(t *testing.T) {
 	svc := &mockTypesService{
-		addResult: &TypesAddResult{
+		addResult: &TypesModifyResult{
 			Node:     NodeInfo{MP: "001", SID: "A3F7c9Qx7Lm2"},
 			Filename: "001_A3F7c9Qx7Lm2_characters.md",
 		},
@@ -230,7 +230,7 @@ func TestTypesAddCmd_HumanOutput(t *testing.T) {
 
 func TestTypesAddCmd_JSONOutput(t *testing.T) {
 	svc := &mockTypesService{
-		addResult: &TypesAddResult{
+		addResult: &TypesModifyResult{
 			Node:     NodeInfo{MP: "001", SID: "A3F7c9Qx7Lm2"},
 			Filename: "001_A3F7c9Qx7Lm2_characters.md",
 		},
@@ -311,7 +311,7 @@ func TestTypesAddCmd_MissingArgs(t *testing.T) {
 
 func TestTypesRemoveCmd_HumanOutput(t *testing.T) {
 	svc := &mockTypesService{
-		removeResult: &TypesRemoveResult{
+		removeResult: &TypesModifyResult{
 			Node:     NodeInfo{MP: "001", SID: "A3F7c9Qx7Lm2"},
 			Filename: "001_A3F7c9Qx7Lm2_characters.md",
 		},
@@ -336,7 +336,7 @@ func TestTypesRemoveCmd_HumanOutput(t *testing.T) {
 
 func TestTypesRemoveCmd_JSONOutput(t *testing.T) {
 	svc := &mockTypesService{
-		removeResult: &TypesRemoveResult{
+		removeResult: &TypesModifyResult{
 			Node:     NodeInfo{MP: "001", SID: "A3F7c9Qx7Lm2"},
 			Filename: "001_A3F7c9Qx7Lm2_characters.md",
 		},
