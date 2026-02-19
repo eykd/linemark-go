@@ -91,22 +91,23 @@ func filterByType(nodes []domain.Node, docType string) []domain.Node {
 // buildTree converts a flat sorted list of nodes into a hierarchical tree.
 func buildTree(nodes []domain.Node, maxDepth int) []*treeNode {
 	nodeMap := make(map[string]*treeNode)
-	var roots []*treeNode
+	roots := []*treeNode{}
 
 	for _, n := range nodes {
 		if maxDepth > 0 && n.MP.Depth() > maxDepth {
 			continue
 		}
 
+		mpStr := n.MP.String()
 		tn := &treeNode{
-			MP:       n.MP.String(),
+			MP:       mpStr,
 			SID:      n.SID,
 			Title:    n.Title,
 			Depth:    n.MP.Depth(),
 			Types:    extractDocTypes(n.Documents),
 			Children: []*treeNode{},
 		}
-		nodeMap[n.MP.String()] = tn
+		nodeMap[mpStr] = tn
 
 		parent, hasParent := n.MP.Parent()
 		if hasParent {
@@ -118,9 +119,6 @@ func buildTree(nodes []domain.Node, maxDepth int) []*treeNode {
 		roots = append(roots, tn)
 	}
 
-	if roots == nil {
-		roots = []*treeNode{}
-	}
 	return roots
 }
 
