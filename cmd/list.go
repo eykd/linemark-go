@@ -134,11 +134,22 @@ func extractDocTypes(docs []domain.Document) []string {
 }
 
 // renderTreeText writes the tree display with box-drawing characters.
+// Multiple roots are merged into a single visual tree: the first root
+// becomes the tree header and subsequent roots appear as siblings of
+// the first root's children.
 func renderTreeText(w io.Writer, roots []*treeNode) {
-	for _, root := range roots {
-		fmt.Fprintf(w, "%s (%s)\n", root.Title, root.SID)
-		renderChildren(w, root.Children, "")
+	if len(roots) == 0 {
+		return
 	}
+
+	first := roots[0]
+	fmt.Fprintf(w, "%s (%s)\n", first.Title, first.SID)
+
+	allChildren := make([]*treeNode, 0, len(first.Children)+len(roots)-1)
+	allChildren = append(allChildren, first.Children...)
+	allChildren = append(allChildren, roots[1:]...)
+
+	renderChildren(w, allChildren, "")
 }
 
 // renderChildren recursively renders child nodes with tree-drawing prefixes.
