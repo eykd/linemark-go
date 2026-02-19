@@ -30,7 +30,7 @@ func TestFormatFrontmatter_NewlineInTitle_RoundTrips(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			content := formatFrontmatter(tt.title)
+			content := formatFrontmatter(defaultFMHandler, tt.title)
 
 			got, err := frontmatter.GetTitle(content)
 			if err != nil {
@@ -47,7 +47,7 @@ func TestFormatFrontmatter_DoubleQuotesWithColon_RoundTrips(t *testing.T) {
 	// formatFrontmatter must handle double-quote characters inside the title
 	// when combined with colons that trigger quoting. Inner quotes need escaping.
 	title := `He said "hello": a greeting`
-	content := formatFrontmatter(title)
+	content := formatFrontmatter(defaultFMHandler, title)
 
 	got, err := frontmatter.GetTitle(content)
 	if err != nil {
@@ -63,7 +63,7 @@ func TestFormatFrontmatter_YAMLInjection_Prevented(t *testing.T) {
 	// frontmatter. Even if the title contains YAML-like key: value syntax,
 	// it must be encoded as a single scalar value.
 	title := "foo\nevil_key: injected_value"
-	content := formatFrontmatter(title)
+	content := formatFrontmatter(defaultFMHandler, title)
 
 	fm, _, err := frontmatter.Split(content)
 	if err != nil {

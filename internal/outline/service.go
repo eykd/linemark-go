@@ -1008,7 +1008,7 @@ func (s *OutlineService) Add(ctx context.Context, title, parentMP string) (*AddR
 
 	slugStr := s.slugifier.Slug(title)
 	filename := domain.GenerateFilename(mp, sid, domain.DocTypeDraft, slugStr)
-	content := formatFrontmatter(title)
+	content := formatFrontmatter(s.fmHandler, title)
 
 	if err := s.writer.WriteFile(ctx, filename, content); err != nil {
 		return nil, err
@@ -1028,8 +1028,8 @@ func (s *OutlineService) Add(ctx context.Context, title, parentMP string) (*AddR
 
 // formatFrontmatter creates YAML frontmatter with a title field.
 // The title is encoded as a safe YAML scalar to prevent injection.
-func formatFrontmatter(title string) string {
-	return defaultFMHandler.Serialize("title: "+defaultFMHandler.EncodeYAMLValue(title)+"\n", "")
+func formatFrontmatter(fmh FrontmatterHandler, title string) string {
+	return fmh.Serialize("title: "+fmh.EncodeYAMLValue(title)+"\n", "")
 }
 
 // buildChildMP constructs an MP path by appending a numbered segment under parentMP.
