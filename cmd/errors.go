@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -36,6 +37,24 @@ func (e *ContextError) Unwrap() error {
 // FormatError formats an error with the "lmk: " prefix and trailing newline.
 func FormatError(err error) string {
 	return fmt.Sprintf("lmk: %s\n", err.Error())
+}
+
+// ExitCoder is implemented by errors that carry a specific process exit code.
+type ExitCoder interface {
+	ExitCode() int
+}
+
+// ExitCodeFromError returns the appropriate exit code for an error.
+// nil returns 0, ExitCoder errors return their code, all others return 1.
+func ExitCodeFromError(err error) int {
+	if err == nil {
+		return 0
+	}
+	var coder ExitCoder
+	if errors.As(err, &coder) {
+		return coder.ExitCode()
+	}
+	return 1
 }
 
 // RunCLI executes the command with the given args, writing output to stdout

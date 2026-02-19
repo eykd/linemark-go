@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 
@@ -108,24 +107,6 @@ func (e *UnrepairedError) Error() string {
 // ExitCode returns the exit code for unrepaired findings (always 2).
 func (e *UnrepairedError) ExitCode() int {
 	return 2
-}
-
-// ExitCoder is implemented by errors that carry a specific process exit code.
-type ExitCoder interface {
-	ExitCode() int
-}
-
-// ExitCodeFromError returns the appropriate exit code for an error.
-// nil returns 0, ExitCoder errors return their code, all others return 1.
-func ExitCodeFromError(err error) int {
-	if err == nil {
-		return 0
-	}
-	var coder ExitCoder
-	if errors.As(err, &coder) {
-		return coder.ExitCode()
-	}
-	return 1
 }
 
 // checkJSONResponse is the JSON output structure for the check command.
