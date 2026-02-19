@@ -438,6 +438,19 @@ func TestRenameResult_PlannedField(t *testing.T) {
 	}
 }
 
+func TestRenameCmd_RegisteredWithRoot(t *testing.T) {
+	found := false
+	for _, sub := range rootCmd.Commands() {
+		if sub.Name() == "rename" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("rename command not registered with root")
+	}
+}
+
 func TestRenameResult_PlannedField_JSON(t *testing.T) {
 	fixture := renameFixture()
 	fixture.Planned = true

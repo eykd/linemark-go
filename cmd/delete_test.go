@@ -420,6 +420,19 @@ func TestDeleteResult_PlannedField(t *testing.T) {
 	}
 }
 
+func TestDeleteCmd_RegisteredWithRoot(t *testing.T) {
+	found := false
+	for _, sub := range rootCmd.Commands() {
+		if sub.Name() == "delete" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("delete command not registered with root")
+	}
+}
+
 func TestDeleteResult_PlannedField_JSON(t *testing.T) {
 	fixture := leafDeleteResult()
 	fixture.Planned = true

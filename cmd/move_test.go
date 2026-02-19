@@ -562,6 +562,19 @@ func TestMoveCmd_ForwardsPlacementFlags(t *testing.T) {
 	}
 }
 
+func TestMoveCmd_RegisteredWithRoot(t *testing.T) {
+	found := false
+	for _, sub := range rootCmd.Commands() {
+		if sub.Name() == "move" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("move command not registered with root")
+	}
+}
+
 func TestMoveCmd_HumanReadableMultipleRenames(t *testing.T) {
 	result := &MoveResult{
 		Renames: []RenameEntry{
