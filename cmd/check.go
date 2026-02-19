@@ -68,10 +68,52 @@ func (e *FindingsDetectedError) Error() string {
 	return fmt.Sprintf("check found %d errors, %d warnings", e.Errors, e.Warnings)
 }
 
+// checkJSONResponse is the JSON output structure for the check command.
+type checkJSONResponse struct {
+	Findings []CheckFinding `json:"findings"`
+	Summary  struct {
+		Errors   int `json:"errors"`
+		Warnings int `json:"warnings"`
+	} `json:"summary"`
+}
+
 // writeJSONImpl encodes v as JSON to w, handling I/O errors at the boundary.
 func writeJSONImpl(w io.Writer, v interface{}) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		fmt.Fprintf(w, "{\"error\":%q}\n", err.Error())
+	}
+}
+
+// countBySeverity counts errors and warnings in a slice of findings.
+func countBySeverity(findings []CheckFinding) (errors, warnings int) {
+	for _, f := range findings {
+		if f.Severity == SeverityError {
+			errors++
+		} else {
+			warnings++
+		}
+	}
+	return
+}
+
+// formatCheckJSON writes findings as JSON to w.
+func formatCheckJSON(w io.Writer, findings []CheckFinding, errCount, warnCount int) {
+	if findings == nil {
+		findings = []CheckFinding{}
+	}
+	out := checkJSONResponse{Findings: findings}
+	out.Summary.Errors = errCount
+	out.Summary.Warnings = warnCount
+	writeJSONImpl(w, out)
+}
+
+// formatCheckHuman writes findings as human-readable text to w.
+func formatCheckHuman(w io.Writer, findings []CheckFinding, errCount, warnCount int) {
+	for _, f := range findings {
+		fmt.Fprintf(w, "%s [%s] %s: %s\n", f.Path, f.Severity, f.Type, f.Message)
+	}
+	if errCount > 0 || warnCount > 0 {
+		fmt.Fprintf(w, "\n%d error(s), %d warning(s)\n", errCount, warnCount)
 	}
 }
 
@@ -84,57 +126,22 @@ func NewCheckCmd(runner CheckRunner) *cobra.Command {
 		Short:        "Validate project structure and content",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := cmd.Context()
-			result, err := runner.Check(ctx)
+			result, err := runner.Check(cmd.Context())
 			if err != nil {
 				return err
 			}
 
-			var errCount, warnCount int
-			for _, f := range result.Findings {
-				if f.Severity == SeverityError {
-					errCount++
-				} else {
-					warnCount++
-				}
-			}
+			errCount, warnCount := countBySeverity(result.Findings)
 
 			if jsonOutput {
-				findings := result.Findings
-				if findings == nil {
-					findings = []CheckFinding{}
-				}
-				out := struct {
-					Findings []CheckFinding `json:"findings"`
-					Summary  struct {
-						Errors   int `json:"errors"`
-						Warnings int `json:"warnings"`
-					} `json:"summary"`
-				}{
-					Findings: findings,
-				}
-				out.Summary.Errors = errCount
-				out.Summary.Warnings = warnCount
-
-				writeJSONImpl(cmd.OutOrStdout(), out)
+				formatCheckJSON(cmd.OutOrStdout(), result.Findings, errCount, warnCount)
 			} else {
-				for _, f := range result.Findings {
-					fmt.Fprintf(cmd.OutOrStdout(), "%s [%s] %s: %s\n",
-						f.Path, f.Severity, f.Type, f.Message)
-				}
-				if errCount > 0 || warnCount > 0 {
-					fmt.Fprintf(cmd.OutOrStdout(), "\n%d error(s), %d warning(s)\n",
-						errCount, warnCount)
-				}
+				formatCheckHuman(cmd.OutOrStdout(), result.Findings, errCount, warnCount)
 			}
 
 			if len(result.Findings) > 0 {
-				return &FindingsDetectedError{
-					Errors:   errCount,
-					Warnings: warnCount,
-				}
+				return &FindingsDetectedError{Errors: errCount, Warnings: warnCount}
 			}
-
 			return nil
 		},
 	}
