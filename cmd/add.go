@@ -22,9 +22,17 @@ type AddResult struct {
 	Planned      bool        `json:"planned"`
 }
 
+// Placement holds options for positioning a new node relative to existing nodes.
+type Placement struct {
+	ChildOf   string
+	SiblingOf string
+	Before    string
+	After     string
+}
+
 // AddRunner defines the interface for running the add operation.
 type AddRunner interface {
-	Add(ctx context.Context, title string, apply bool, childOf string, siblingOf string, before string, after string) (*AddResult, error)
+	Add(ctx context.Context, title string, apply bool, placement Placement) (*AddResult, error)
 }
 
 // NewAddCmd creates the add command with the given runner.
@@ -49,7 +57,13 @@ func NewAddCmd(runner AddRunner) *cobra.Command {
 			}
 
 			isDryRun := GetDryRun()
-			result, err := runner.Add(cmd.Context(), args[0], !isDryRun, childOf, siblingOf, before, after)
+			placement := Placement{
+				ChildOf:   childOf,
+				SiblingOf: siblingOf,
+				Before:    before,
+				After:     after,
+			}
+			result, err := runner.Add(cmd.Context(), args[0], !isDryRun, placement)
 			if err != nil {
 				return err
 			}
