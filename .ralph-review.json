@@ -1,0 +1,1 @@
+{"complete":true,"reason":"All three dependencies (yaml.v3, flock, x/text) are in go.mod and go.sum; go build ./... succeeds; just check passes with full coverage.","remaining_items":[],"test_gaps":[]}
