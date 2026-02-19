@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 
@@ -66,6 +67,24 @@ type FindingsDetectedError struct {
 // Error implements the error interface.
 func (e *FindingsDetectedError) Error() string {
 	return fmt.Sprintf("check found %d errors, %d warnings", e.Errors, e.Warnings)
+}
+
+// ExitCode returns the exit code for findings (always 2).
+func (e *FindingsDetectedError) ExitCode() int {
+	return 2
+}
+
+// ExitCodeFromError returns the appropriate exit code for an error.
+// nil returns 0, FindingsDetectedError returns 2, all others return 1.
+func ExitCodeFromError(err error) int {
+	if err == nil {
+		return 0
+	}
+	var findingsErr *FindingsDetectedError
+	if errors.As(err, &findingsErr) {
+		return findingsErr.ExitCode()
+	}
+	return 1
 }
 
 // checkJSONResponse is the JSON output structure for the check command.
