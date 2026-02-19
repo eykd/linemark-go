@@ -159,6 +159,10 @@ func NewOutlineService(reader DirectoryReader, writer FileWriter, locker Locker,
 
 // AddType adds a document type to a node, acquiring an advisory lock first.
 func (s *OutlineService) AddType(ctx context.Context, docType, selector string) (*ModifyResult, error) {
+	if err := domain.ValidateDocType(docType); err != nil {
+		return nil, err
+	}
+
 	if err := s.locker.TryLock(ctx); err != nil {
 		return nil, err
 	}
@@ -197,6 +201,10 @@ func (s *OutlineService) addTypeImpl(ctx context.Context, docType, selector stri
 
 // RemoveType removes a document type from a node, acquiring an advisory lock first.
 func (s *OutlineService) RemoveType(ctx context.Context, docType, selector string) (*ModifyResult, error) {
+	if err := domain.ValidateDocType(docType); err != nil {
+		return nil, err
+	}
+
 	if err := s.locker.TryLock(ctx); err != nil {
 		return nil, err
 	}

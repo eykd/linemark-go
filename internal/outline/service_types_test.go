@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/eykd/linemark-go/internal/domain"
 )
 
 func TestOutlineService_ListTypes_ReturnsDocumentTypes(t *testing.T) {
@@ -88,6 +90,38 @@ func TestOutlineService_AddType_CreatesFile(t *testing.T) {
 	}
 }
 
+func TestOutlineService_AddType_RejectsInvalidDocType(t *testing.T) {
+	files := []string{
+		"100_SID001AABB_draft_hello.md",
+		"100_SID001AABB_notes.md",
+	}
+
+	tests := []struct {
+		name    string
+		docType string
+	}{
+		{"path traversal", "../../../etc"},
+		{"slash in type", "foo/bar"},
+		{"uppercase letters", "Draft"},
+		{"contains digits", "type1"},
+		{"empty string", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := &fakeDirectoryReader{files: files}
+			writer := &fakeFileWriter{}
+			svc := NewOutlineService(reader, writer, &mockLocker{}, nil)
+
+			_, err := svc.AddType(context.Background(), tt.docType, "100")
+
+			if !errors.Is(err, domain.ErrInvalidDocType) {
+				t.Errorf("AddType(%q) error = %v, want %v", tt.docType, err, domain.ErrInvalidDocType)
+			}
+		})
+	}
+}
+
 func TestOutlineService_AddType_NodeNotFound(t *testing.T) {
 	reader := &fakeDirectoryReader{files: []string{}}
 	svc := NewOutlineService(reader, &fakeFileWriter{}, &mockLocker{}, nil)
@@ -137,6 +171,40 @@ func TestOutlineService_RemoveType_DeletesFile(t *testing.T) {
 	// And: Node identification should be populated
 	if result.NodeMP != "100" {
 		t.Errorf("NodeMP = %q, want %q", result.NodeMP, "100")
+	}
+}
+
+func TestOutlineService_RemoveType_RejectsInvalidDocType(t *testing.T) {
+	files := []string{
+		"100_SID001AABB_draft_hello.md",
+		"100_SID001AABB_notes.md",
+		"100_SID001AABB_characters.md",
+	}
+
+	tests := []struct {
+		name    string
+		docType string
+	}{
+		{"path traversal", "../../../etc"},
+		{"slash in type", "foo/bar"},
+		{"uppercase letters", "Draft"},
+		{"contains digits", "type1"},
+		{"empty string", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := &fakeDirectoryReader{files: files}
+			deleter := &fakeFileDeleter{}
+			svc := NewOutlineService(reader, nil, &mockLocker{}, nil)
+			svc.deleter = deleter
+
+			_, err := svc.RemoveType(context.Background(), tt.docType, "100")
+
+			if !errors.Is(err, domain.ErrInvalidDocType) {
+				t.Errorf("RemoveType(%q) error = %v, want %v", tt.docType, err, domain.ErrInvalidDocType)
+			}
+		})
 	}
 }
 
