@@ -3,12 +3,33 @@ package outline
 
 import (
 	"context"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/eykd/linemark-go/internal/domain"
+	"github.com/eykd/linemark-go/internal/slug"
 )
+
+// DirectoryReader abstracts reading filenames from the project directory.
+type DirectoryReader interface {
+	ReadDir(ctx context.Context) ([]string, error)
+}
+
+// FileWriter abstracts writing files to the project directory.
+type FileWriter interface {
+	WriteFile(ctx context.Context, filename, content string) error
+}
 
 // Locker abstracts advisory lock acquisition for mutating commands.
 type Locker interface {
 	TryLock(ctx context.Context) error
 	Unlock() error
+}
+
+// SIDReserver abstracts reserving a new stable ID.
+type SIDReserver interface {
+	Reserve(ctx context.Context) (string, error)
 }
 
 // ModifyResult holds the result of a mutating outline operation.
@@ -23,9 +44,25 @@ type CheckResult struct{}
 // RepairResult holds the result of repairing the outline.
 type RepairResult struct{}
 
+// LoadResult holds the result of loading the outline from disk.
+type LoadResult struct {
+	Outline  domain.Outline
+	Findings []domain.Finding
+}
+
+// AddResult holds the result of adding a new node to the outline.
+type AddResult struct {
+	SID      string
+	MP       string
+	Filename string
+}
+
 // OutlineService coordinates outline mutations with advisory locking.
 type OutlineService struct {
-	locker Locker
+	reader   DirectoryReader
+	writer   FileWriter
+	locker   Locker
+	reserver SIDReserver
 }
 
 // NewOutlineService creates an OutlineService with the given Locker.
@@ -71,4 +108,113 @@ func (s *OutlineService) Repair(ctx context.Context) (*RepairResult, error) {
 	defer s.locker.Unlock()
 
 	return &RepairResult{}, nil
+}
+
+// Load reads the project directory and builds an Outline without acquiring a lock.
+func (s *OutlineService) Load(ctx context.Context) (*LoadResult, error) {
+	files, err := s.reader.ReadDir(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var parsed []domain.ParsedFile
+	var findings []domain.Finding
+
+	for _, f := range files {
+		pf, parseErr := domain.ParseFilename(f)
+		if parseErr != nil {
+			findings = append(findings, domain.Finding{
+				Type:     domain.FindingInvalidFilename,
+				Severity: domain.SeverityWarning,
+				Message:  fmt.Sprintf("invalid filename: %s", f),
+				Path:     f,
+			})
+			continue
+		}
+		parsed = append(parsed, pf)
+	}
+
+	outline, buildFindings, err := domain.BuildOutline(parsed)
+	if err != nil {
+		return nil, err
+	}
+
+	findings = append(findings, buildFindings...)
+
+	return &LoadResult{
+		Outline:  outline,
+		Findings: findings,
+	}, nil
+}
+
+// Add creates a new node in the outline, acquiring an advisory lock first.
+func (s *OutlineService) Add(ctx context.Context, title, parentMP string) (*AddResult, error) {
+	if err := s.locker.TryLock(ctx); err != nil {
+		return nil, err
+	}
+	defer s.locker.Unlock()
+
+	files, err := s.reader.ReadDir(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	sid, err := s.reserver.Reserve(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var occupied []int
+	if parentMP == "" {
+		for _, f := range files {
+			pf, parseErr := domain.ParseFilename(f)
+			if parseErr != nil {
+				continue
+			}
+			if pf.Depth == 1 {
+				n, _ := strconv.Atoi(pf.PathParts[0])
+				occupied = append(occupied, n)
+			}
+		}
+	} else {
+		parentDepth := strings.Count(parentMP, "-") + 1
+		prefix := parentMP + "-"
+		for _, f := range files {
+			pf, parseErr := domain.ParseFilename(f)
+			if parseErr != nil {
+				continue
+			}
+			if strings.HasPrefix(pf.MP, prefix) && pf.Depth == parentDepth+1 {
+				n, _ := strconv.Atoi(pf.PathParts[len(pf.PathParts)-1])
+				occupied = append(occupied, n)
+			}
+		}
+	}
+
+	nextNum, err := domain.NextSiblingNumber(occupied)
+	if err != nil {
+		return nil, err
+	}
+
+	segment := fmt.Sprintf("%03d", nextNum)
+	var mp string
+	if parentMP == "" {
+		mp = segment
+	} else {
+		mp = parentMP + "-" + segment
+	}
+
+	slugStr := slug.Slug(title)
+	filename := domain.GenerateFilename(mp, sid, "draft", slugStr)
+	content := fmt.Sprintf("---\ntitle: %s\n---\n", title)
+
+	if err := s.writer.WriteFile(ctx, filename, content); err != nil {
+		return nil, err
+	}
+
+	return &AddResult{
+		SID:      sid,
+		MP:       mp,
+		Filename: filename,
+	}, nil
 }
