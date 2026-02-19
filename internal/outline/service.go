@@ -557,7 +557,32 @@ func (s *OutlineService) Move(ctx context.Context, source, target domain.Selecto
 		return nil, fmt.Errorf("cannot move %s to descendant %s: %w", sourceMP, targetMP, ErrCycleDetected)
 	}
 
-	nextNum, _ := domain.NextSiblingNumber(nil)
+	// Collect existing children at the target level (excluding the source being moved)
+	var occupied []int
+	for _, pf := range parsed {
+		if isDirectChild(pf, targetMP) && pf.MP != sourceMP {
+			n, _ := strconv.Atoi(pf.PathParts[len(pf.PathParts)-1])
+			occupied = append(occupied, n)
+		}
+	}
+
+	var nextNum int
+	var numErr error
+	switch {
+	case before != "":
+		parts := strings.Split(before, "-")
+		beforeNum, _ := strconv.Atoi(parts[len(parts)-1])
+		nextNum, numErr = domain.SiblingNumberBefore(occupied, beforeNum)
+	case after != "":
+		parts := strings.Split(after, "-")
+		afterNum, _ := strconv.Atoi(parts[len(parts)-1])
+		nextNum, numErr = domain.SiblingNumberAfter(occupied, afterNum)
+	default:
+		nextNum, numErr = domain.NextSiblingNumber(occupied)
+	}
+	if numErr != nil {
+		return nil, numErr
+	}
 	newSourceMP := buildChildMP(targetMP, nextNum)
 
 	renames := map[string]string{}
@@ -916,17 +941,14 @@ func (s *OutlineService) promoteChildren(ctx context.Context, parsed []domain.Pa
 }
 
 // countAvailableGaps returns the number of available sibling positions
-// in the range [1, max(occupied)], excluding the occupied positions themselves.
+// in the range [1, 999], excluding the occupied positions.
 func countAvailableGaps(occupied []int) int {
+	const maxPositions = 999
 	unique := map[int]bool{}
-	maxNum := 0
 	for _, n := range occupied {
 		unique[n] = true
-		if n > maxNum {
-			maxNum = n
-		}
 	}
-	return maxNum - len(unique)
+	return maxPositions - len(unique)
 }
 
 // deleteFiles performs the actual file deletions and renames, or just plans them.
@@ -965,7 +987,10 @@ func applyRenames(ctx context.Context, renamer FileRenamer, renames map[string]s
 	var completed [][2]string
 	for oldName, newName := range renames {
 		if err := renamer.RenameFile(ctx, oldName, newName); err != nil {
-			rollbackRenames(ctx, renamer, completed)
+			rbErr := rollbackRenames(ctx, renamer, completed)
+			if rbErr != nil {
+				return fmt.Errorf("rename %s -> %s: %w; rollback failed: %v", oldName, newName, err, rbErr)
+			}
 			return fmt.Errorf("rename %s -> %s: %w", oldName, newName, err)
 		}
 		completed = append(completed, [2]string{oldName, newName})
@@ -974,10 +999,14 @@ func applyRenames(ctx context.Context, renamer FileRenamer, renames map[string]s
 }
 
 // rollbackRenames reverses already-completed renames on a best-effort basis.
-func rollbackRenames(ctx context.Context, renamer FileRenamer, completed [][2]string) {
+func rollbackRenames(ctx context.Context, renamer FileRenamer, completed [][2]string) error {
+	var errs []error
 	for i := len(completed) - 1; i >= 0; i-- {
-		_ = renamer.RenameFile(ctx, completed[i][1], completed[i][0])
+		if err := renamer.RenameFile(ctx, completed[i][1], completed[i][0]); err != nil {
+			errs = append(errs, fmt.Errorf("rollback %s -> %s: %w", completed[i][1], completed[i][0], err))
+		}
 	}
+	return errors.Join(errs...)
 }
 
 // Add creates a new node in the outline, acquiring an advisory lock first.

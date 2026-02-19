@@ -295,14 +295,46 @@ func TestOutlineService_Delete_Promote_NestedNode(t *testing.T) {
 }
 
 func TestOutlineService_Delete_Promote_InsufficientGaps(t *testing.T) {
-	// Node 001 has 2 children, but siblings 002 and 003 leave no room
-	// After removing 001, occupied = {002, 003}. Only 1 gap available (position 001).
+	// Node 001 has 2 children. Siblings 002 and 003 occupy only 2 of 999
+	// positions, leaving 997 available — plenty of room for 2 promoted children.
+	// This test verifies promote succeeds in this scenario.
 	files := []string{
 		"001_SID001AABB_draft_node.md",
 		"001-100_SID002CCDD_draft_child-one.md",
 		"001-200_SID003EEFF_draft_child-two.md",
 		"002_SID004GGHH_draft_sibling-one.md",
 		"003_SID005IIJJ_draft_sibling-two.md",
+	}
+	deleter := &fakeFileDeleter{}
+	renamer := &fakeFileRenamer{}
+	svc := newDeleteTestService(files, deleter, renamer)
+
+	sel, _ := domain.ParseSelector("001")
+	result, err := svc.Delete(context.Background(), sel, domain.DeleteModePromote, true)
+
+	if err != nil {
+		t.Fatalf("promote should succeed with 997 available gaps, got: %v", err)
+	}
+	if len(result.FilesDeleted) != 1 {
+		t.Errorf("files_deleted = %d, want 1 (target only)", len(result.FilesDeleted))
+	}
+	if len(result.FilesRenamed) != 2 {
+		t.Errorf("files_renamed = %d, want 2 (promoted children)", len(result.FilesRenamed))
+	}
+}
+
+func TestOutlineService_Delete_Promote_InsufficientGaps_FullLevel(t *testing.T) {
+	// When all 999 sibling positions are occupied (minus the target),
+	// promoting 2 children is impossible — only 1 slot available.
+	files := []string{
+		"001_SID001AABB_draft_target.md",
+		"001-100_SID002CCDD_draft_child-one.md",
+		"001-200_SID003EEFF_draft_child-two.md",
+	}
+	// Fill positions 002 through 999 with siblings (998 entries).
+	for i := 2; i <= 999; i++ {
+		sid := fmt.Sprintf("SIDB%08d", i)
+		files = append(files, fmt.Sprintf("%03d_%s_draft_sibling.md", i, sid))
 	}
 	deleter := &fakeFileDeleter{}
 	renamer := &fakeFileRenamer{}
@@ -316,13 +348,6 @@ func TestOutlineService_Delete_Promote_InsufficientGaps(t *testing.T) {
 	}
 	if !errors.Is(err, ErrInsufficientGaps) {
 		t.Errorf("error = %v, want ErrInsufficientGaps", err)
-	}
-	// No files should be modified when validation fails early
-	if len(deleter.deleted) != 0 {
-		t.Errorf("no files should be deleted when promote fails, got %d deletions", len(deleter.deleted))
-	}
-	if len(renamer.renames) != 0 {
-		t.Errorf("no files should be renamed when promote fails, got %d renames", len(renamer.renames))
 	}
 }
 

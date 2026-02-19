@@ -356,6 +356,33 @@ func TestOutlineService_Move_ReadDirError(t *testing.T) {
 	}
 }
 
+func TestOutlineService_Move_NoSlotAvailable(t *testing.T) {
+	// Two adjacent siblings at 200-001 and 200-002 leave no gap between them.
+	// Moving with before="200-002" should fail with no slot available.
+	files := []string{
+		"200_SID002CCDD_draft_target.md",
+		"200-001_SID003EEFF_draft_child-one.md",
+		"200-002_SID005IIJJ_draft_child-two.md",
+		"300_SID004GGHH_draft_source.md",
+	}
+	renamer := &fakeFileRenamer{}
+	reader := &fakeDirectoryReader{files: files}
+	locker := &mockLocker{}
+	svc := NewOutlineService(reader, nil, locker, nil)
+	svc.renamer = renamer
+
+	sourceSel, _ := domain.ParseSelector("300")
+	targetSel, _ := domain.ParseSelector("200")
+	_, err := svc.Move(context.Background(), sourceSel, targetSel, "200-002", "", true)
+
+	if err == nil {
+		t.Fatal("expected error when no slot available between adjacent siblings")
+	}
+	if !errors.Is(err, domain.ErrNoSlotAvailable) {
+		t.Errorf("error = %v, want ErrNoSlotAvailable", err)
+	}
+}
+
 func TestOutlineService_Move_PreservesSIDs(t *testing.T) {
 	renamer := &fakeFileRenamer{}
 	svc := newMoveTestService(moveTestFiles(), renamer)
