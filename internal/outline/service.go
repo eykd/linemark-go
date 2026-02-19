@@ -481,7 +481,7 @@ func (s *OutlineService) Delete(ctx context.Context, sel domain.Selector, mode d
 	for _, pf := range parsed {
 		if pf.MP == targetMP {
 			targetFiles = append(targetFiles, generateName(pf))
-		} else if strings.HasPrefix(pf.MP, targetMP+"-") {
+		} else if isDescendantMP(pf.MP, targetMP) {
 			descendantFiles = append(descendantFiles, pf)
 		}
 	}
@@ -532,7 +532,7 @@ func (s *OutlineService) Move(ctx context.Context, source, target domain.Selecto
 		return nil, err
 	}
 
-	if targetMP == sourceMP || strings.HasPrefix(targetMP, sourceMP+"-") {
+	if targetMP == sourceMP || isDescendantMP(targetMP, sourceMP) {
 		return nil, fmt.Errorf("cannot move %s to descendant %s: %w", sourceMP, targetMP, ErrCycleDetected)
 	}
 
@@ -541,7 +541,7 @@ func (s *OutlineService) Move(ctx context.Context, source, target domain.Selecto
 
 	renames := map[string]string{}
 	for _, pf := range parsed {
-		if pf.MP == sourceMP || strings.HasPrefix(pf.MP, sourceMP+"-") {
+		if pf.MP == sourceMP || isDescendantMP(pf.MP, sourceMP) {
 			oldName := generateName(pf)
 			newMP := newSourceMP + pf.MP[len(sourceMP):]
 			newName := domain.GenerateFilename(newMP, pf.SID, pf.DocType, pf.Slug)
@@ -623,7 +623,7 @@ func (s *OutlineService) compactChildrenImpl(parsed []domain.ParsedFile, parentM
 		newChildMP := buildChildMP(parentMP, newNums[i])
 
 		for _, pf := range parsed {
-			if pf.MP == oldChildMP || strings.HasPrefix(pf.MP, oldChildMP+"-") {
+			if pf.MP == oldChildMP || isDescendantMP(pf.MP, oldChildMP) {
 				oldName := generateName(pf)
 				newMP := newChildMP + pf.MP[len(oldChildMP):]
 				newName := domain.GenerateFilename(newMP, pf.SID, pf.DocType, pf.Slug)
@@ -780,11 +780,8 @@ func findMissingDocTypeFindings(nodes []domain.Node) []domain.Finding {
 
 // readAndParse reads the project directory and parses valid filenames.
 func (s *OutlineService) readAndParse(ctx context.Context) ([]domain.ParsedFile, error) {
-	files, err := s.reader.ReadDir(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return parseValidFiles(files), nil
+	parsed, _, err := s.readAndParseWithFindings(ctx)
+	return parsed, err
 }
 
 // readAndParseWithFindings reads the project directory and parses filenames, collecting findings for invalid ones.
@@ -815,12 +812,6 @@ func parseFilesWithFindings(files []string) ([]domain.ParsedFile, []domain.Findi
 		parsed = append(parsed, pf)
 	}
 	return parsed, findings
-}
-
-// parseValidFiles parses filenames, silently skipping invalid ones.
-func parseValidFiles(files []string) []domain.ParsedFile {
-	parsed, _ := parseFilesWithFindings(files)
-	return parsed
 }
 
 // generateName reconstructs the filename from a ParsedFile's components.
@@ -1029,13 +1020,18 @@ func buildChildMP(parentMP string, num int) string {
 	return parentMP + "-" + segment
 }
 
+// isDescendantMP reports whether childMP is a descendant of ancestorMP.
+func isDescendantMP(childMP, ancestorMP string) bool {
+	return strings.HasPrefix(childMP, ancestorMP+"-")
+}
+
 // isDirectChild reports whether pf is a direct child of parentMP.
 func isDirectChild(pf domain.ParsedFile, parentMP string) bool {
 	if parentMP == "" {
 		return pf.Depth == 1
 	}
 	parentDepth := strings.Count(parentMP, "-") + 1
-	return strings.HasPrefix(pf.MP, parentMP+"-") && pf.Depth == parentDepth+1
+	return isDescendantMP(pf.MP, parentMP) && pf.Depth == parentDepth+1
 }
 
 // collectChildNumbers returns the occupied sibling numbers under parentMP.
