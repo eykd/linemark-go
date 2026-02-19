@@ -101,3 +101,6 @@ Pipeline CLI: `go run ./acceptance/cmd/pipeline -action=<parse|generate|run>`
 
 ## Active Technologies
 - Go 1.23 + Cobra (CLI framework)
+- gopkg.in/yaml.v3 (YAML frontmatter)
+- github.com/gofrs/flock (advisory file locking)
+- golang.org/x/text (Unicode normalization for slug generation)
