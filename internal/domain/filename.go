@@ -50,8 +50,9 @@ func ParseFilename(filename string) (ParsedFile, error) {
 
 // GenerateFilename creates a linemark filename from its components.
 func GenerateFilename(mp, sid, docType, slug string) string {
-	if slug == "" {
-		return mp + "_" + sid + "_" + docType + ".md"
+	parts := []string{mp, sid, docType}
+	if slug != "" {
+		parts = append(parts, slug)
 	}
-	return mp + "_" + sid + "_" + docType + "_" + slug + ".md"
+	return strings.Join(parts, "_") + ".md"
 }
