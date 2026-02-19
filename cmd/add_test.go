@@ -59,6 +59,21 @@ func newTestAddCmd(runner *mockAddRunner, args ...string) (*cobra.Command, *byte
 	return cmd, buf
 }
 
+// newTestRootAddCmd creates an add command wired through root (for global flags like --dry-run, --json),
+// capturing stdout into the returned buffer.
+func newTestRootAddCmd(runner *mockAddRunner, args ...string) (*cobra.Command, *bytes.Buffer) {
+	root := NewRootCmd()
+	cmd := NewAddCmd(runner)
+	root.AddCommand(cmd)
+	buf := new(bytes.Buffer)
+	root.SetOut(buf)
+	root.SetErr(new(bytes.Buffer))
+	if len(args) > 0 {
+		root.SetArgs(args)
+	}
+	return root, buf
+}
+
 func TestAddCmd_RegisteredWithRoot(t *testing.T) {
 	found := false
 	for _, sub := range rootCmd.Commands() {
@@ -299,13 +314,7 @@ func TestAddCmd_DryRunBehavior(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			runner := &mockAddRunner{result: chapterOneResult()}
-			root := NewRootCmd()
-			cmd := NewAddCmd(runner)
-			root.AddCommand(cmd)
-			buf := new(bytes.Buffer)
-			root.SetOut(buf)
-			root.SetErr(new(bytes.Buffer))
-			root.SetArgs(tt.args)
+			root, _ := newTestRootAddCmd(runner, tt.args...)
 
 			err := root.Execute()
 
@@ -333,13 +342,7 @@ func TestAddCmd_DryRunSetsPlanned(t *testing.T) {
 			},
 		},
 	}
-	root := NewRootCmd()
-	cmd := NewAddCmd(runner)
-	root.AddCommand(cmd)
-	buf := new(bytes.Buffer)
-	root.SetOut(buf)
-	root.SetErr(new(bytes.Buffer))
-	root.SetArgs([]string{"add", "--json", "--dry-run", "Chapter One"})
+	root, buf := newTestRootAddCmd(runner, "add", "--json", "--dry-run", "Chapter One")
 
 	err := root.Execute()
 
@@ -367,13 +370,7 @@ func TestAddCmd_DryRunSetsPlanned(t *testing.T) {
 
 func TestAddCmd_GlobalJSONFlag(t *testing.T) {
 	runner := &mockAddRunner{result: chapterOneResult()}
-	root := NewRootCmd()
-	cmd := NewAddCmd(runner)
-	root.AddCommand(cmd)
-	buf := new(bytes.Buffer)
-	root.SetOut(buf)
-	root.SetErr(new(bytes.Buffer))
-	root.SetArgs([]string{"--json", "add", "Chapter One"})
+	root, buf := newTestRootAddCmd(runner, "--json", "add", "Chapter One")
 
 	err := root.Execute()
 
