@@ -214,10 +214,11 @@ func (s *OutlineService) Add(ctx context.Context, title, parentMP string) (*AddR
 
 // formatFrontmatter creates YAML frontmatter with a title field.
 func formatFrontmatter(title string) string {
+	value := title
 	if strings.Contains(title, ":") {
-		return fmt.Sprintf("---\ntitle: \"%s\"\n---\n", title)
+		value = `"` + title + `"`
 	}
-	return fmt.Sprintf("---\ntitle: %s\n---\n", title)
+	return fmt.Sprintf("---\ntitle: %s\n---\n", value)
 }
 
 // buildChildMP constructs an MP path by appending a numbered segment under parentMP.
