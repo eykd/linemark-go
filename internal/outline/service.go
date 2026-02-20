@@ -394,38 +394,16 @@ func (s *OutlineService) repairImpl(ctx context.Context) (*RepairResult, error) 
 	}
 
 	// Repair slug drift
-	if s.contentReader != nil {
-		for _, node := range outline.Nodes {
-			for _, doc := range node.Documents {
-				if doc.Type != domain.DocTypeDraft {
-					continue
-				}
-				content, err := s.contentReader.ReadFile(ctx, doc.Filename)
-				if err != nil {
-					continue
-				}
-				title, err := s.fmHandler.GetTitle(content)
-				if err != nil || title == "" {
-					continue
-				}
-				expectedSlug := s.slugifier.Slug(title)
-				pf, err := domain.ParseFilename(doc.Filename)
-				if err != nil {
-					continue
-				}
-				if pf.Slug != expectedSlug {
-					newFilename := domain.GenerateFilename(pf.MP, pf.SID, pf.DocType, expectedSlug)
-					if err := s.renamer.RenameFile(ctx, doc.Filename, newFilename); err != nil {
-						return nil, err
-					}
-					result.Repairs = append(result.Repairs, RepairAction{
-						Type: domain.FindingSlugDrift,
-						Old:  doc.Filename,
-						New:  newFilename,
-					})
-				}
-			}
+	for _, d := range s.detectSlugDriftsImpl(ctx, outline.Nodes) {
+		newFilename := domain.GenerateFilename(d.parsed.MP, d.parsed.SID, d.parsed.DocType, d.expectedSlug)
+		if err := s.renamer.RenameFile(ctx, d.filename, newFilename); err != nil {
+			return nil, err
 		}
+		result.Repairs = append(result.Repairs, RepairAction{
+			Type: domain.FindingSlugDrift,
+			Old:  d.filename,
+			New:  newFilename,
+		})
 	}
 
 	return result, nil
@@ -842,12 +820,20 @@ func findMissingDocTypeFindings(nodes []domain.Node) []domain.Finding {
 	return findings
 }
 
-// findSlugDriftFindingsImpl checks draft documents for slug drift.
-func (s *OutlineService) findSlugDriftFindingsImpl(ctx context.Context, nodes []domain.Node) []domain.Finding {
+// slugDrift represents a detected mismatch between a file's slug and its frontmatter title.
+type slugDrift struct {
+	filename     string
+	expectedSlug string
+	parsed       domain.ParsedFile
+}
+
+// detectSlugDriftsImpl reads draft documents and returns any whose filename slug
+// doesn't match the slug derived from the frontmatter title.
+func (s *OutlineService) detectSlugDriftsImpl(ctx context.Context, nodes []domain.Node) []slugDrift {
 	if s.contentReader == nil {
 		return nil
 	}
-	var findings []domain.Finding
+	var drifts []slugDrift
 	for _, node := range nodes {
 		for _, doc := range node.Documents {
 			if doc.Type != domain.DocTypeDraft {
@@ -867,14 +853,28 @@ func (s *OutlineService) findSlugDriftFindingsImpl(ctx context.Context, nodes []
 				continue
 			}
 			if pf.Slug != expectedSlug {
-				findings = append(findings, domain.Finding{
-					Type:     domain.FindingSlugDrift,
-					Severity: domain.SeverityWarning,
-					Message:  fmt.Sprintf("slug drift: %s (expected %s)", doc.Filename, expectedSlug),
-					Path:     doc.Filename,
+				drifts = append(drifts, slugDrift{
+					filename:     doc.Filename,
+					expectedSlug: expectedSlug,
+					parsed:       pf,
 				})
 			}
 		}
+	}
+	return drifts
+}
+
+// findSlugDriftFindingsImpl checks draft documents for slug drift.
+func (s *OutlineService) findSlugDriftFindingsImpl(ctx context.Context, nodes []domain.Node) []domain.Finding {
+	drifts := s.detectSlugDriftsImpl(ctx, nodes)
+	var findings []domain.Finding
+	for _, d := range drifts {
+		findings = append(findings, domain.Finding{
+			Type:     domain.FindingSlugDrift,
+			Severity: domain.SeverityWarning,
+			Message:  fmt.Sprintf("slug drift: %s (expected %s)", d.filename, d.expectedSlug),
+			Path:     d.filename,
+		})
 	}
 	return findings
 }
