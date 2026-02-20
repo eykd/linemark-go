@@ -292,10 +292,15 @@ func (a *compactAdapter) Compact(ctx context.Context, selector string, apply boo
 		renames = append(renames, RenameEntry{Old: old, New: newName})
 	}
 
-	return &CompactResult{
+	result := &CompactResult{
 		Renames:       renames,
 		FilesAffected: len(svcResult.Renames),
-	}, nil
+	}
+	if result.FilesAffected > 50 {
+		w := fmt.Sprintf("compact affects %d files — review with --dry-run before applying", result.FilesAffected)
+		result.Warning = &w
+	}
+	return result, nil
 }
 
 // --- typesAdapter ---
