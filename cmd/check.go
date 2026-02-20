@@ -152,8 +152,8 @@ func formatCheckHuman(w io.Writer, findings []CheckFinding, errCount, warnCount 
 
 // runCheckAndReport runs the checker and formats findings as JSON or human-readable text.
 // It returns a FindingsDetectedError if any findings are present.
-func runCheckAndReport(cmd *cobra.Command, runner CheckRunner, jsonOutput bool) error {
-	result, err := runner.Check(cmd.Context())
+func runCheckAndReport(ctx context.Context, w io.Writer, runner CheckRunner, jsonOutput bool) error {
+	result, err := runner.Check(ctx)
 	if err != nil {
 		return err
 	}
@@ -161,9 +161,9 @@ func runCheckAndReport(cmd *cobra.Command, runner CheckRunner, jsonOutput bool) 
 	errCount, warnCount := countBySeverity(result.Findings)
 
 	if jsonOutput {
-		formatCheckJSON(cmd.OutOrStdout(), result.Findings, errCount, warnCount)
+		formatCheckJSON(w, result.Findings, errCount, warnCount)
 	} else {
-		formatCheckHuman(cmd.OutOrStdout(), result.Findings, errCount, warnCount)
+		formatCheckHuman(w, result.Findings, errCount, warnCount)
 	}
 
 	if len(result.Findings) > 0 {
@@ -184,7 +184,7 @@ func NewCheckCmd(runner CheckRunner) *cobra.Command {
 			if runner == nil {
 				return ErrNotInProject
 			}
-			return runCheckAndReport(cmd, runner, jsonOutput || GetJSON())
+			return runCheckAndReport(cmd.Context(), cmd.OutOrStdout(), runner, jsonOutput || GetJSON())
 		},
 	}
 

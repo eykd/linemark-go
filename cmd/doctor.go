@@ -31,7 +31,7 @@ func NewDoctorCmd(runner CheckRunner, repairers ...RepairRunner) *cobra.Command 
 			if runner == nil {
 				return ErrNotInProject
 			}
-			return runCheckAndReport(cmd, runner, jsonOutput || GetJSON())
+			return runCheckAndReport(cmd.Context(), cmd.OutOrStdout(), runner, jsonOutput || GetJSON())
 		},
 	}
 
@@ -103,9 +103,5 @@ func runRepairAndReport(cmd *cobra.Command, runner CheckRunner, repairer RepairR
 
 	// Post-repair validation: re-run checker with suppressed output to detect
 	// any remaining findings that were not repaired (e.g. invalid_filename).
-	savedOut := cmd.OutOrStdout()
-	cmd.SetOut(io.Discard)
-	checkErr := runCheckAndReport(cmd, runner, false)
-	cmd.SetOut(savedOut)
-	return checkErr
+	return runCheckAndReport(cmd.Context(), io.Discard, runner, false)
 }
