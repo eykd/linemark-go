@@ -41,6 +41,14 @@ Before defining test doubles or helpers in a new `*_test.go` file:
 2. **Reuse what exists** — Go compiles all `*_test.go` in a package together; duplicate type names cause compile errors
 3. **Verify functions exist before calling them** — don't assume `Must*` variants exist; check with grep first
 
+### CLI Error Visibility Checklist
+
+Before marking a CLI wiring task complete, verify:
+
+1. **Entry point prints errors**: If root command has `SilenceErrors: true`, the caller (`main.go`) MUST print errors to stderr. Test with `RunCLI()`.
+2. **No silent nil runners**: Every command with a nil runner guard must be covered in `TestBuildCommandTree_AllCommandsHandleNilService`.
+3. **Build-and-run smoke test**: `just smoke` passes.
+
 ### Feature Implementation Template
 
 ```go

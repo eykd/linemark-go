@@ -16,6 +16,10 @@ pre-commit:
       glob: "*.go"
       run: staticcheck ./...
 
+    smoke:
+      glob: "*.go"
+      run: just smoke
+
     test-coverage:
       glob: "*.go"
       run: |

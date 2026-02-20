@@ -67,6 +67,21 @@ check: fmt-check vet lint test-cover-check
 build:
     go build -o bin/lmk .
 
+# Smoke-test: errors are visible, not silent
+smoke: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    BIN="$(pwd)/bin/lmk"
+    DIR=$(mktemp -d)
+    trap "rm -rf $DIR" EXIT
+    # Must print error, not be silent
+    OUTPUT=$("$BIN" list 2>&1) && { echo "FAIL: expected non-zero exit"; exit 1; } || true
+    if [ -z "$OUTPUT" ]; then
+        echo "FAIL: 'lmk list' outside project produced no output"
+        exit 1
+    fi
+    echo "Smoke test passed"
+
 # Clean build artifacts
 clean:
     rm -rf bin/ coverage.out coverage.html generated-acceptance-tests/ acceptance-pipeline/ir/

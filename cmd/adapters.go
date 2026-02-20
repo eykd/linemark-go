@@ -2,6 +2,9 @@ package cmd
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/eykd/linemark-go/internal/domain"
@@ -96,6 +99,35 @@ func (a *addAdapter) Add(ctx context.Context, title string, apply bool, p Placem
 		result.FilesPlanned = []string{svcResult.Filename}
 	}
 	return result, nil
+}
+
+// --- bootstrapAddAdapter ---
+
+// bootstrapAddAdapter creates .linemark/ in CWD and wires a service before
+// delegating to a real addAdapter. Used when no project exists yet.
+type bootstrapAddAdapter struct {
+	getwd       func() (string, error)
+	wireService func(root string) (outlineServicer, error)
+}
+
+func (b *bootstrapAddAdapter) Add(ctx context.Context, title string, apply bool, p Placement) (*AddResult, error) {
+	cwd, err := b.getwd()
+	if err != nil {
+		return nil, fmt.Errorf("getting working directory: %w", err)
+	}
+
+	dir := filepath.Join(cwd, ".linemark")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("creating .linemark directory: %w", err)
+	}
+
+	svc, err := b.wireService(cwd)
+	if err != nil {
+		return nil, err
+	}
+
+	real := &addAdapter{svc: svc}
+	return real.Add(ctx, title, apply, p)
 }
 
 // --- checkAdapter ---

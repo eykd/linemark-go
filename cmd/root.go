@@ -4,6 +4,7 @@ package cmd
 import (
 	"context"
 	"crypto/rand"
+	"os"
 	"path/filepath"
 
 	"github.com/eykd/linemark-go/internal/fs"
@@ -24,7 +25,7 @@ var jsonFlag bool
 var dryRun bool
 
 func init() {
-	rootCmd = BuildCommandTree(nil)
+	rootCmd = BuildCommandTree(nil, nil)
 }
 
 // GetVerbose returns the current verbose flag state.
@@ -64,8 +65,9 @@ func NewRootCmd() *cobra.Command {
 
 // BuildCommandTree creates a complete root command with all subcommands wired
 // to the given service. If svc is nil, all runners will be nil (nil guards in
-// each command will return ErrNotInProject).
-func BuildCommandTree(svc *outline.OutlineService) *cobra.Command {
+// each command will return ErrNotInProject), except for add which uses
+// bootstrapAdd when provided.
+func BuildCommandTree(svc *outline.OutlineService, bootstrapAdd AddRunner) *cobra.Command {
 	root := NewRootCmd()
 
 	var aa AddRunner
@@ -88,8 +90,14 @@ func BuildCommandTree(svc *outline.OutlineService) *cobra.Command {
 		rna = &renameAdapter{svc: svc}
 		cpa = &compactAdapter{svc: svc}
 		ta = &typesAdapter{svc: svc}
+	} else if bootstrapAdd != nil {
+		aa = bootstrapAdd
 	}
 
+	// Commands that work without a project
+	root.AddCommand(NewInitCmd(os.Getwd))
+
+	// Commands that require a project
 	root.AddCommand(NewAddCmd(aa))
 	root.AddCommand(NewCheckCmd(ca))
 	root.AddCommand(NewDoctorCmd(ca, ra))
@@ -103,13 +111,8 @@ func BuildCommandTree(svc *outline.OutlineService) *cobra.Command {
 	return root
 }
 
-// wireFromCwdImpl detects the project root and wires the OutlineService.
-func wireFromCwdImpl() (*outline.OutlineService, error) {
-	projectRoot, err := fs.FindProjectRootImpl()
-	if err != nil {
-		return nil, err
-	}
-
+// wireServiceFromRootImpl creates an OutlineService for the given project root.
+func wireServiceFromRootImpl(projectRoot string) (*outline.OutlineService, error) {
 	reader := &fs.OSReader{Root: projectRoot}
 	writer := &fs.OSWriter{Root: projectRoot}
 	deleter := &fs.OSDeleter{Root: projectRoot}
@@ -129,16 +132,42 @@ func wireFromCwdImpl() (*outline.OutlineService, error) {
 	return svc, nil
 }
 
+// wireFromCwdImpl detects the project root and wires the OutlineService.
+func wireFromCwdImpl() (*outline.OutlineService, error) {
+	projectRoot, err := fs.FindProjectRootImpl()
+	if err != nil {
+		return nil, err
+	}
+	return wireServiceFromRootImpl(projectRoot)
+}
+
 // Execute runs the root command and returns any error.
 // Deprecated: Use ExecuteContext instead for proper signal handling.
 func Execute() error {
 	return rootCmd.Execute()
 }
 
-// ExecuteContext runs the root command with the given context.
+// ExecuteContextImpl runs the root command with the given context.
 // This enables graceful shutdown via context cancellation (e.g., on SIGINT).
-func ExecuteContext(ctx context.Context) error {
+// It is an Impl function because it wraps OS operations (wireFromCwdImpl, os.Getwd).
+func ExecuteContextImpl(ctx context.Context) error {
 	svc, _ := wireFromCwdImpl()
-	root := BuildCommandTree(svc)
+
+	var bootstrap AddRunner
+	if svc == nil {
+		bootstrap = &bootstrapAddAdapter{
+			getwd: os.Getwd,
+			wireService: func(root string) (outlineServicer, error) {
+				return wireServiceFromRootImpl(root)
+			},
+		}
+	}
+
+	root := BuildCommandTree(svc, bootstrap)
 	return root.ExecuteContext(ctx)
+}
+
+// ExecuteContext delegates to ExecuteContextImpl.
+func ExecuteContext(ctx context.Context) error {
+	return ExecuteContextImpl(ctx)
 }

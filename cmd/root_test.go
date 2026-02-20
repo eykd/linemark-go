@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
+	"github.com/eykd/linemark-go/internal/outline"
 	"github.com/spf13/cobra"
 )
 
@@ -142,6 +144,61 @@ func TestRootCmd_SilenceUsage(t *testing.T) {
 	cmd := NewRootCmd()
 	if !cmd.SilenceUsage {
 		t.Error("expected SilenceUsage to be true to prevent printing usage on errors")
+	}
+}
+
+func TestBuildCommandTree_InitRegistered(t *testing.T) {
+	root := BuildCommandTree(nil, nil)
+	found := false
+	for _, sub := range root.Commands() {
+		if sub.Name() == "init" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("init command not registered in BuildCommandTree")
+	}
+}
+
+func TestBuildCommandTree_AddBootstrapsWhenNoService(t *testing.T) {
+	// When svc is nil but bootstrapAdd is provided, add should use the bootstrap adapter
+	stub := &stubOutlineService{
+		addResult: &outline.AddResult{SID: "ABCD12345678", MP: "100", Filename: "100_ABCD12345678_draft_hello.md"},
+	}
+	bootstrap := &bootstrapAddAdapter{
+		getwd: func() (string, error) { return t.TempDir(), nil },
+		wireService: func(root string) (outlineServicer, error) {
+			return stub, nil
+		},
+	}
+	root := BuildCommandTree(nil, bootstrap)
+	buf := new(bytes.Buffer)
+	root.SetOut(buf)
+	root.SetErr(new(bytes.Buffer))
+	root.SetArgs([]string{"add", "My Novel"})
+
+	err := root.Execute()
+
+	if err != nil {
+		t.Fatalf("add should bootstrap when no project exists, got: %v", err)
+	}
+	if stub.addTitle != "My Novel" {
+		t.Errorf("title = %q, want %q", stub.addTitle, "My Novel")
+	}
+}
+
+func TestBuildCommandTree_InitWorksWithoutService(t *testing.T) {
+	root := BuildCommandTree(nil, nil)
+	root.SetArgs([]string{"init", "--help"})
+	buf := new(bytes.Buffer)
+	root.SetOut(buf)
+	root.SetErr(new(bytes.Buffer))
+
+	err := root.Execute()
+
+	if err != nil {
+		t.Fatalf("init --help should work without service, got: %v", err)
 	}
 }
 

@@ -51,6 +51,10 @@ Coverage exemptions (per `.claude/skills/go-tdd/references/coverage.md`):
 - These are tested via integration tests, not unit tests
 - The coverage check filters out Impl functions from the calculation
 
+### CLI Smoke Test
+
+After changes to `main.go`, `cmd/root.go`, or command wiring, run `just smoke` to verify errors are visible to users. This is also enforced in pre-commit.
+
 After cloning, install git hooks:
 ```bash
 lefthook install

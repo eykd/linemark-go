@@ -1,6 +1,7 @@
 package archtest_test
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -170,6 +171,46 @@ func TestLayerDependencyCompliance(t *testing.T) {
 					pkgPath, sourceLayer, rel, targetLayer)
 			}
 		}
+	}
+}
+
+// fileContainsIdent parses a Go source file and returns true if any identifier
+// in the AST matches the given name.
+func fileContainsIdent(t *testing.T, path, name string) bool {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, nil, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", path, err)
+	}
+
+	found := false
+	ast.Inspect(f, func(n ast.Node) bool {
+		if ident, ok := n.(*ast.Ident); ok && ident.Name == name {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+// TestMainPrintsErrorsWhenSilenceErrorsSet verifies that when SilenceErrors
+// is set on the root command, main.go calls FormatError to print errors to
+// stderr. Without this, CLI errors are silently swallowed.
+func TestMainPrintsErrorsWhenSilenceErrorsSet(t *testing.T) {
+	root := projectRoot(t)
+
+	// Check if SilenceErrors is set in cmd/root.go
+	if !fileContainsIdent(t, filepath.Join(root, "cmd", "root.go"), "SilenceErrors") {
+		t.Skip("SilenceErrors not used")
+	}
+
+	// Verify main.go calls FormatError
+	mainFile := filepath.Join(root, "main.go")
+	if !fileContainsIdent(t, mainFile, "FormatError") {
+		t.Error("main.go must call FormatError when SilenceErrors is true on root command — " +
+			"otherwise CLI errors are silently swallowed")
 	}
 }
 
