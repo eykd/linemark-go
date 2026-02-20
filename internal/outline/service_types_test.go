@@ -262,6 +262,60 @@ func TestOutlineService_AddType_BySID(t *testing.T) {
 	}
 }
 
+func TestOutlineService_AddType_RejectsDuplicateType(t *testing.T) {
+	tests := []struct {
+		name     string
+		files    []string
+		docType  string
+		selector string
+	}{
+		{
+			name: "exact match - type exists without slug",
+			files: []string{
+				"100_SID001AABB_draft.md",
+				"100_SID001AABB_notes.md",
+			},
+			docType:  "draft",
+			selector: "100",
+		},
+		{
+			name: "type exists with slug",
+			files: []string{
+				"100_SID001AABB_draft_my-title.md",
+				"100_SID001AABB_notes.md",
+			},
+			docType:  "draft",
+			selector: "100",
+		},
+		{
+			name: "type exists with slug, selected by SID",
+			files: []string{
+				"100_SID001AABB_draft_my-title.md",
+				"100_SID001AABB_notes.md",
+			},
+			docType:  "draft",
+			selector: "SID001AABB",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := &fakeDirectoryReader{files: tt.files}
+			writer := &fakeFileWriter{}
+			svc := NewOutlineService(reader, writer, &mockLocker{}, nil)
+
+			_, err := svc.AddType(context.Background(), tt.docType, tt.selector)
+
+			if !errors.Is(err, ErrTypeAlreadyExists) {
+				t.Errorf("AddType(%q, %q) error = %v, want ErrTypeAlreadyExists", tt.docType, tt.selector, err)
+			}
+			if len(writer.written) != 0 {
+				t.Errorf("expected no files written, got: %v", writer.written)
+			}
+		})
+	}
+}
+
 func TestOutlineService_RemoveType_BySID(t *testing.T) {
 	files := []string{
 		"100_SID001AABB_draft_hello.md",
