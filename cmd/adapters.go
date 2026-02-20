@@ -310,22 +310,7 @@ func (a *typesAdapter) ListTypes(ctx context.Context, selector string) (*TypesLi
 
 func (a *typesAdapter) AddType(ctx context.Context, docType, selector string, apply bool) (*TypesModifyResult, error) {
 	if !apply {
-		if err := domain.ValidateDocType(docType); err != nil {
-			return nil, err
-		}
-		sel, err := domain.ParseSelector(selector)
-		if err != nil {
-			return nil, err
-		}
-		node, err := a.svc.ResolveSelector(ctx, sel)
-		if err != nil {
-			return nil, err
-		}
-		filename := domain.GenerateFilename(node.MP.String(), node.SID, docType, "")
-		return &TypesModifyResult{
-			Node:     NodeInfo{MP: node.MP.String(), SID: node.SID},
-			Filename: filename,
-		}, nil
+		return a.resolveTypesDryRun(ctx, docType, selector)
 	}
 	svcResult, err := a.svc.AddType(ctx, docType, selector)
 	if err != nil {
@@ -339,22 +324,7 @@ func (a *typesAdapter) AddType(ctx context.Context, docType, selector string, ap
 
 func (a *typesAdapter) RemoveType(ctx context.Context, docType, selector string, apply bool) (*TypesModifyResult, error) {
 	if !apply {
-		if err := domain.ValidateDocType(docType); err != nil {
-			return nil, err
-		}
-		sel, err := domain.ParseSelector(selector)
-		if err != nil {
-			return nil, err
-		}
-		node, err := a.svc.ResolveSelector(ctx, sel)
-		if err != nil {
-			return nil, err
-		}
-		filename := domain.GenerateFilename(node.MP.String(), node.SID, docType, "")
-		return &TypesModifyResult{
-			Node:     NodeInfo{MP: node.MP.String(), SID: node.SID},
-			Filename: filename,
-		}, nil
+		return a.resolveTypesDryRun(ctx, docType, selector)
 	}
 	svcResult, err := a.svc.RemoveType(ctx, docType, selector)
 	if err != nil {
@@ -363,6 +333,27 @@ func (a *typesAdapter) RemoveType(ctx context.Context, docType, selector string,
 	return &TypesModifyResult{
 		Node:     NodeInfo{MP: svcResult.NodeMP, SID: svcResult.NodeSID},
 		Filename: svcResult.Filename,
+	}, nil
+}
+
+// resolveTypesDryRun validates inputs and resolves the target node to produce
+// the would-be filename without performing any I/O.
+func (a *typesAdapter) resolveTypesDryRun(ctx context.Context, docType, selector string) (*TypesModifyResult, error) {
+	if err := domain.ValidateDocType(docType); err != nil {
+		return nil, err
+	}
+	sel, err := domain.ParseSelector(selector)
+	if err != nil {
+		return nil, err
+	}
+	node, err := a.svc.ResolveSelector(ctx, sel)
+	if err != nil {
+		return nil, err
+	}
+	filename := domain.GenerateFilename(node.MP.String(), node.SID, docType, "")
+	return &TypesModifyResult{
+		Node:     NodeInfo{MP: node.MP.String(), SID: node.SID},
+		Filename: filename,
 	}, nil
 }
 

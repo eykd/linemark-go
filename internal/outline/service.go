@@ -1155,9 +1155,9 @@ func rollbackRenames(ctx context.Context, renamer FileRenamer, completed [][2]st
 type AddOption func(*addConfig)
 
 type addConfig struct {
-	before  string
-	after   string
-	noApply bool
+	before string
+	after  string
+	dryRun bool
 }
 
 // AddBefore positions the new node before the sibling with the given MP.
@@ -1168,7 +1168,7 @@ func AddAfter(mp string) AddOption { return func(c *addConfig) { c.after = mp } 
 
 // AddApply controls whether Add writes files to disk.
 // When apply is false, the node position and filenames are planned but no I/O is performed.
-func AddApply(apply bool) AddOption { return func(c *addConfig) { c.noApply = !apply } }
+func AddApply(apply bool) AddOption { return func(c *addConfig) { c.dryRun = !apply } }
 
 // lastSegmentNum extracts the last numeric segment from an MP string.
 func lastSegmentNum(mp string) int {
@@ -1227,7 +1227,7 @@ func (s *OutlineService) Add(ctx context.Context, title, parentMP string, opts .
 	slugStr := s.slugifier.Slug(title)
 	filename := domain.GenerateFilename(mp, sid, domain.DocTypeDraft, slugStr)
 
-	if !cfg.noApply {
+	if !cfg.dryRun {
 		content := formatFrontmatter(s.fmHandler, title)
 		if err := s.writer.WriteFile(ctx, filename, content); err != nil {
 			return nil, err
