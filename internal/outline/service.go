@@ -413,23 +413,18 @@ func (s *OutlineService) repairImpl(ctx context.Context) (*RepairResult, error) 
 	}
 
 	// Repair missing reservation markers
-	if s.reservationStore != nil {
-		uniqueSIDs := uniqueSIDsFromParsed(parsed)
-		for _, sid := range uniqueSIDs {
-			has, err := s.reservationStore.HasReservation(ctx, sid)
-			if err != nil {
-				return nil, err
-			}
-			if !has {
-				if err := s.reservationStore.CreateReservation(ctx, sid); err != nil {
-					return nil, err
-				}
-				result.Repairs = append(result.Repairs, RepairAction{
-					Type: domain.FindingMissingReservation,
-					New:  sid,
-				})
-			}
+	missingReservations, err := s.findMissingReservationFindings(ctx, parsed)
+	if err != nil {
+		return nil, err
+	}
+	for _, finding := range missingReservations {
+		if err := s.reservationStore.CreateReservation(ctx, finding.Path); err != nil {
+			return nil, err
 		}
+		result.Repairs = append(result.Repairs, RepairAction{
+			Type: domain.FindingMissingReservation,
+			New:  finding.Path,
+		})
 	}
 
 	// Repair slug drift
