@@ -748,36 +748,26 @@ func (s *OutlineService) renameImpl(ctx context.Context, selector, newTitle stri
 		return nil, err
 	}
 
-	// Find the draft file and read its content once for both title extraction and frontmatter update.
-	var draftFile domain.ParsedFile
-	var foundDraft bool
-	var draftContent string
-	for _, pf := range parsed {
-		if pf.MP == nodeMP && pf.DocType == domain.DocTypeDraft {
-			draftFile = pf
-			foundDraft = true
-			break
-		}
-	}
-
-	var oldTitle string
-	if foundDraft {
-		content, err := s.contentReader.ReadFile(ctx, reconstructFilename(draftFile))
-		if err == nil {
-			draftContent = content
-			oldTitle, _ = s.fmHandler.GetTitle(content)
-		}
-	}
-
 	newSlug := s.slugifier.Slug(newTitle)
 	renames := map[string]string{}
+	var draftContent string
+	var oldTitle string
 
 	for _, pf := range parsed {
-		if pf.MP == nodeMP && pf.DocType == domain.DocTypeDraft {
-			oldName := reconstructFilename(pf)
-			newName := domain.GenerateFilename(pf.MP, pf.SID, pf.DocType, newSlug)
-			if oldName != newName {
-				renames[oldName] = newName
+		if pf.MP != nodeMP || pf.DocType != domain.DocTypeDraft {
+			continue
+		}
+		oldName := reconstructFilename(pf)
+		newName := domain.GenerateFilename(pf.MP, pf.SID, pf.DocType, newSlug)
+		if oldName != newName {
+			renames[oldName] = newName
+		}
+		// Read content from the first draft file for title extraction and frontmatter update.
+		if draftContent == "" {
+			content, err := s.contentReader.ReadFile(ctx, oldName)
+			if err == nil {
+				draftContent = content
+				oldTitle, _ = s.fmHandler.GetTitle(content)
 			}
 		}
 	}
@@ -799,7 +789,7 @@ func (s *OutlineService) renameImpl(ctx context.Context, selector, newTitle stri
 	}
 
 	// Update frontmatter title using the already-read content
-	if foundDraft && draftContent != "" {
+	if draftContent != "" {
 		updatedContent, err := s.fmHandler.SetTitle(draftContent, newTitle)
 		if err == nil {
 			newFilename := domain.GenerateFilename(nodeMP, nodeSID, domain.DocTypeDraft, newSlug)

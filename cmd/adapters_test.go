@@ -365,6 +365,31 @@ func TestRenameAdapter_ConvertsResult(t *testing.T) {
 	}
 }
 
+func TestRenameAdapter_PopulatesNodeIdentifiers(t *testing.T) {
+	stub := &stubOutlineService{
+		renameResult: &outline.RenameResult{
+			MP:       "100",
+			SID:      "SID001AABB",
+			OldTitle: "Old",
+			NewTitle: "New",
+			Renames:  map[string]string{"old.md": "new.md"},
+		},
+	}
+	adapter := &renameAdapter{svc: stub}
+
+	result, err := adapter.Rename(context.Background(), "100", "New", true)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Node.MP != "100" {
+		t.Errorf("node.mp = %q, want %q", result.Node.MP, "100")
+	}
+	if result.Node.SID != "SID001AABB" {
+		t.Errorf("node.sid = %q, want %q", result.Node.SID, "SID001AABB")
+	}
+}
+
 // --- compactAdapter tests ---
 
 func TestCompactAdapter_ConvertsResult(t *testing.T) {

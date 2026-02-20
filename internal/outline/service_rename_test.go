@@ -238,3 +238,63 @@ func TestOutlineService_Rename_FailsWhenLocked(t *testing.T) {
 		t.Errorf("expected ErrAlreadyLocked, got %v", err)
 	}
 }
+
+func TestOutlineService_Rename_ReturnsNodeIdentifiers(t *testing.T) {
+	tests := []struct {
+		name     string
+		files    []string
+		contents map[string]string
+		selector string
+		wantMP   string
+		wantSID  string
+	}{
+		{
+			name: "returns MP and SID when selecting by MP",
+			files: []string{
+				"100_SID001AABB_draft_old-title.md",
+			},
+			contents: map[string]string{
+				"100_SID001AABB_draft_old-title.md": "---\ntitle: Old Title\n---\n",
+			},
+			selector: "100",
+			wantMP:   "100",
+			wantSID:  "SID001AABB",
+		},
+		{
+			name: "returns MP and SID when selecting by SID",
+			files: []string{
+				"100_SID001AABB_draft_old-title.md",
+			},
+			contents: map[string]string{
+				"100_SID001AABB_draft_old-title.md": "---\ntitle: Old Title\n---\n",
+			},
+			selector: "SID001AABB",
+			wantMP:   "100",
+			wantSID:  "SID001AABB",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := &fakeDirectoryReader{files: tt.files}
+			renamer := &fakeFileRenamer{}
+			writer := &fakeFileWriter{}
+			contentReader := &fakeContentReader{contents: tt.contents}
+			svc := NewOutlineService(reader, writer, &mockLocker{}, nil)
+			svc.renamer = renamer
+			svc.contentReader = contentReader
+
+			result, err := svc.Rename(context.Background(), tt.selector, "New Title", false)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if result.MP != tt.wantMP {
+				t.Errorf("MP = %q, want %q", result.MP, tt.wantMP)
+			}
+			if result.SID != tt.wantSID {
+				t.Errorf("SID = %q, want %q", result.SID, tt.wantSID)
+			}
+		})
+	}
+}
