@@ -681,16 +681,29 @@ func TestAddCmd_BeforeAfterMutuallyExclusive(t *testing.T) {
 }
 
 func TestAddCmd_RejectsEmptyTitle(t *testing.T) {
-	runner := &mockAddRunner{result: chapterOneResult()}
-	cmd, _ := newTestAddCmd(runner, "")
-
-	err := cmd.Execute()
-
-	if err == nil {
-		t.Fatal("expected error for empty title")
+	tests := []struct {
+		name  string
+		title string
+	}{
+		{"empty string", ""},
+		{"whitespace only", "   "},
+		{"tab only", "\t"},
 	}
-	if runner.called {
-		t.Error("runner should not be called for empty title")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &mockAddRunner{result: chapterOneResult()}
+			cmd, _ := newTestAddCmd(runner, tt.title)
+
+			err := cmd.Execute()
+
+			if err == nil {
+				t.Fatal("expected error for empty title")
+			}
+			if runner.called {
+				t.Error("runner should not be called for empty title")
+			}
+		})
 	}
 }
 
