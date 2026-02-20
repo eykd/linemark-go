@@ -27,6 +27,9 @@ var ErrInsufficientGaps = errors.New("insufficient gaps for promoted children")
 // ErrCycleDetected is returned when a move would create a cycle.
 var ErrCycleDetected = errors.New("cycle detected")
 
+// ErrTypeAlreadyExists is returned when adding a type that already exists on a node.
+var ErrTypeAlreadyExists = errors.New("type already exists")
+
 // Slugifier converts a title string to a URL-friendly slug.
 type Slugifier interface {
 	Slug(s string) string
@@ -246,6 +249,12 @@ func (s *OutlineService) addTypeImpl(ctx context.Context, docType, selector stri
 	nodeMP, nodeSID, err := findNodeBySelector(parsed, selector)
 	if err != nil {
 		return nil, err
+	}
+
+	for _, pf := range parsed {
+		if pf.MP == nodeMP && pf.DocType == docType {
+			return nil, ErrTypeAlreadyExists
+		}
 	}
 
 	filename := domain.GenerateFilename(nodeMP, nodeSID, docType, "")
