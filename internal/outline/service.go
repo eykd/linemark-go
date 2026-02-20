@@ -139,6 +139,8 @@ type CompactResult struct {
 
 // RenameResult holds the result of a rename operation.
 type RenameResult struct {
+	MP       string
+	SID      string
 	OldTitle string
 	NewTitle string
 	Renames  map[string]string
@@ -781,6 +783,8 @@ func (s *OutlineService) renameImpl(ctx context.Context, selector, newTitle stri
 	}
 
 	result := &RenameResult{
+		MP:       nodeMP,
+		SID:      nodeSID,
 		OldTitle: oldTitle,
 		NewTitle: newTitle,
 		Renames:  renames,

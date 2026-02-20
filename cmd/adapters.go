@@ -270,6 +270,8 @@ func (a *renameAdapter) Rename(ctx context.Context, selector, newTitle string, a
 
 	return &RenameResult{
 		Node: RenameNodeInfo{
+			MP:       svcResult.MP,
+			SID:      svcResult.SID,
 			OldTitle: svcResult.OldTitle,
 			NewTitle: svcResult.NewTitle,
 		},
