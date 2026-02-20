@@ -342,3 +342,9 @@ When following TDD strictly:
 - Is there dead code that should be removed?
 - Is the design testable? (dependency injection, interfaces)
 - Are there hidden dependencies on global state?
+
+### Batch Implementation Anti-Pattern
+
+When implementing multiple similar functions (e.g., adapters, handlers), it is tempting to write all code first and add tests later. This violates TDD and reliably produces coverage gaps in error paths.
+
+**Rule**: Complete the full Red-Green-Refactor cycle for each function before starting the next. Run `just test-cover-check` after each function, not after the batch.

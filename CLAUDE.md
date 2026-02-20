@@ -100,7 +100,7 @@ Pipeline CLI: `go run ./acceptance/cmd/pipeline -action=<parse|generate|run>`
 5. Tasks without specs fall back to standard TDD
 
 ## Active Technologies
-- Go 1.23 + Cobra (CLI framework)
+- Go 1.25 + Cobra (CLI framework)
 - gopkg.in/yaml.v3 (YAML frontmatter)
 - github.com/gofrs/flock (advisory file locking)
 - golang.org/x/text (Unicode normalization for slug generation)
