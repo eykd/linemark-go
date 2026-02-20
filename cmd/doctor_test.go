@@ -662,3 +662,106 @@ func TestDoctorCmd_Apply_UnrepairedError_ExitCode(t *testing.T) {
 		t.Errorf("exit code = %d, want 2 for unrepaired findings", exitCode)
 	}
 }
+
+// trackingCheckRunner wraps mockCheckRunner and tracks whether Check was called.
+type trackingCheckRunner struct {
+	mockCheckRunner
+	called bool
+}
+
+func (t *trackingCheckRunner) Check(ctx context.Context) (*CheckResult, error) {
+	t.called = true
+	return t.mockCheckRunner.Check(ctx)
+}
+
+// TestDoctorCmd_Apply_CheckerInvokedAfterRepair verifies that the doctor
+// command invokes the checker in --apply mode to detect post-repair findings
+// that the repairer itself did not attempt to fix.
+func TestDoctorCmd_Apply_CheckerInvokedAfterRepair(t *testing.T) {
+	checker := &trackingCheckRunner{mockCheckRunner: mockCheckRunner{result: &CheckResult{}}}
+	repairer := &mockRepairRunner{result: &RepairResult{}}
+	cmd := NewDoctorCmd(checker, repairer)
+	cmd.SetArgs([]string{"--apply"})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+
+	_ = cmd.Execute()
+
+	if !checker.called {
+		t.Error("checker should be invoked in --apply mode to validate post-repair state")
+	}
+}
+
+// TestDoctorCmd_Apply_ExitCode2_WhenPostRepairCheckFindsIssues verifies that
+// --apply returns exit code 2 when the post-repair check still detects findings,
+// even if the repairer itself reported zero unrepaired findings (e.g. invalid_filename
+// which the repairer silently skips).
+func TestDoctorCmd_Apply_ExitCode2_WhenPostRepairCheckFindsIssues(t *testing.T) {
+	tests := []struct {
+		name              string
+		repairResult      *RepairResult
+		postCheckFindings []CheckFinding
+		wantExitCode      int
+	}{
+		{
+			name:         "invalid filename skipped by repairer causes exit 2",
+			repairResult: &RepairResult{},
+			postCheckFindings: []CheckFinding{
+				{
+					Type:     FindingInvalidFilename,
+					Severity: SeverityError,
+					Message:  "filename does not match canonical pattern",
+					Path:     "999_INVALID_draft_bad.md",
+				},
+			},
+			wantExitCode: 2,
+		},
+		{
+			name: "clean post-repair check exits 0",
+			repairResult: &RepairResult{
+				Repairs: []RepairAction{
+					{Type: FindingSlugDrift, Action: "rename", Old: "old.md", New: "new.md"},
+				},
+			},
+			postCheckFindings: nil,
+			wantExitCode:      0,
+		},
+		{
+			name: "partial repair with remaining invalid filename causes exit 2",
+			repairResult: &RepairResult{
+				Repairs: []RepairAction{
+					{Type: FindingSlugDrift, Action: "rename", Old: "old.md", New: "new.md"},
+				},
+			},
+			postCheckFindings: []CheckFinding{
+				{
+					Type:     FindingInvalidFilename,
+					Severity: SeverityError,
+					Message:  "filename does not match canonical pattern",
+					Path:     "999_INVALID_draft_bad.md",
+				},
+			},
+			wantExitCode: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			checker := &mockCheckRunner{
+				result: &CheckResult{Findings: tt.postCheckFindings},
+			}
+			repairer := &mockRepairRunner{result: tt.repairResult}
+			cmd := NewDoctorCmd(checker, repairer)
+			cmd.SetArgs([]string{"--apply"})
+			cmd.SetOut(new(bytes.Buffer))
+			cmd.SetErr(new(bytes.Buffer))
+
+			err := cmd.Execute()
+
+			gotExitCode := ExitCodeFromError(err)
+			if gotExitCode != tt.wantExitCode {
+				t.Errorf("exit code = %d, want %d (err = %v)", gotExitCode, tt.wantExitCode, err)
+			}
+		})
+	}
+}
