@@ -657,7 +657,7 @@ func (s *OutlineService) compactImpl(ctx context.Context, selector string, apply
 	if err != nil {
 		return nil, err
 	}
-	renames := s.compactChildrenImpl(parsed, selector)
+	renames := s.compactChildrenImpl(parsed, selector, selector)
 
 	result := &CompactResult{Renames: renames}
 
@@ -672,15 +672,18 @@ func (s *OutlineService) compactImpl(ctx context.Context, selector string, apply
 	return result, nil
 }
 
-// compactChildrenImpl computes renames to compact children of parentMP at consistent spacing.
-func (s *OutlineService) compactChildrenImpl(parsed []domain.ParsedFile, parentMP string) map[string]string {
+// compactChildrenImpl computes renames to compact children of oldParentMP at consistent spacing.
+// oldParentMP is the current on-disk parent path (used to find children in parsed files).
+// newParentMP is the destination parent path (used to compute new filenames).
+// At the top level both are the same; they diverge when an ancestor was also renumbered.
+func (s *OutlineService) compactChildrenImpl(parsed []domain.ParsedFile, oldParentMP, newParentMP string) map[string]string {
 	renames := map[string]string{}
 
-	// Find unique direct child MPs
+	// Find unique direct child MPs using the old (on-disk) parent path
 	seen := map[string]bool{}
 	var childMPs []string
 	for _, pf := range parsed {
-		if isDirectChild(pf, parentMP) && !seen[pf.MP] {
+		if isDirectChild(pf, oldParentMP) && !seen[pf.MP] {
 			seen[pf.MP] = true
 			childMPs = append(childMPs, pf.MP)
 		}
@@ -697,31 +700,24 @@ func (s *OutlineService) compactChildrenImpl(parsed []domain.ParsedFile, parentM
 		return renames
 	}
 
-	// Build rename map for each child and its descendants
+	// Build rename map for each child (direct files only)
 	for i, oldChildMP := range childMPs {
-		newChildMP := buildChildMP(parentMP, newNums[i])
+		newChildMP := buildChildMP(newParentMP, newNums[i])
 
 		for _, pf := range parsed {
-			if pf.MP == oldChildMP || isDescendantMP(pf.MP, oldChildMP) {
+			if pf.MP == oldChildMP {
 				oldName := reconstructFilename(pf)
-				newMP := newChildMP + pf.MP[len(oldChildMP):]
-				newName := domain.GenerateFilename(newMP, pf.SID, pf.DocType, pf.Slug)
+				newName := domain.GenerateFilename(newChildMP, pf.SID, pf.DocType, pf.Slug)
 				if oldName != newName {
 					renames[oldName] = newName
 				}
 			}
 		}
 
-		// Recursively compact the children of this child
-		childRenames := s.compactChildrenImpl(parsed, oldChildMP)
+		// Recursively compact descendants, passing both old and new child paths
+		childRenames := s.compactChildrenImpl(parsed, oldChildMP, newChildMP)
 		for old, newName := range childRenames {
-			// Apply the parent rename if the file was also renamed
-			if parentNew, ok := renames[old]; ok {
-				delete(renames, old)
-				renames[parentNew] = newName
-			} else {
-				renames[old] = newName
-			}
+			renames[old] = newName
 		}
 	}
 

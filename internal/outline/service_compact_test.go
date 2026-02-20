@@ -193,3 +193,50 @@ func TestOutlineService_Compact_CompactsDescendantsRecursively(t *testing.T) {
 		t.Errorf("child draft rename = %q, want %q", gotChildDraft, wantChildDraft)
 	}
 }
+
+func TestOutlineService_Compact_RenumbersParentAndChildSimultaneously(t *testing.T) {
+	// When a parent node is renumbered AND its children also need compacting,
+	// the rename map must use actual filenames (on disk) as keys and apply
+	// both the parent prefix change and child compacting to produce correct targets.
+	files := []string{
+		"010_SIDA12345AB_draft_prologue.md",
+		"010_SIDA12345AB_notes.md",
+		"100_SIDB12345AB_draft_chapter-one.md",
+		"100_SIDB12345AB_notes.md",
+		"100-300_SIDC12345AB_draft_scene-c.md",
+		"100-300_SIDC12345AB_notes.md",
+	}
+	renamer := &fakeFileRenamer{}
+	svc := NewOutlineService(&fakeDirectoryReader{files: files}, nil, &mockLocker{}, nil)
+	svc.renamer = renamer
+
+	result, err := svc.Compact(context.Background(), "", true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantRenames := map[string]string{
+		"010_SIDA12345AB_draft_prologue.md":    "100_SIDA12345AB_draft_prologue.md",
+		"010_SIDA12345AB_notes.md":             "100_SIDA12345AB_notes.md",
+		"100_SIDB12345AB_draft_chapter-one.md": "200_SIDB12345AB_draft_chapter-one.md",
+		"100_SIDB12345AB_notes.md":             "200_SIDB12345AB_notes.md",
+		"100-300_SIDC12345AB_draft_scene-c.md": "200-100_SIDC12345AB_draft_scene-c.md",
+		"100-300_SIDC12345AB_notes.md":         "200-100_SIDC12345AB_notes.md",
+	}
+
+	if len(result.Renames) != len(wantRenames) {
+		t.Errorf("renames count = %d, want %d; got %v",
+			len(result.Renames), len(wantRenames), result.Renames)
+	}
+
+	for oldName, wantNewName := range wantRenames {
+		gotNewName, ok := result.Renames[oldName]
+		if !ok {
+			t.Errorf("expected rename for %s, got renames: %v", oldName, result.Renames)
+			continue
+		}
+		if gotNewName != wantNewName {
+			t.Errorf("rename %s = %q, want %q", oldName, gotNewName, wantNewName)
+		}
+	}
+}
