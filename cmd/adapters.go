@@ -241,12 +241,7 @@ func (a *moveAdapter) Move(ctx context.Context, selector, to, before, after stri
 		return nil, err
 	}
 
-	renames := make([]RenameEntry, 0, len(svcResult.Renames))
-	for old, newName := range svcResult.Renames {
-		renames = append(renames, RenameEntry{Old: old, New: newName})
-	}
-
-	return &MoveResult{Renames: renames}, nil
+	return &MoveResult{Renames: convertRenames(svcResult.Renames)}, nil
 }
 
 // --- renameAdapter ---
@@ -261,17 +256,12 @@ func (a *renameAdapter) Rename(ctx context.Context, selector, newTitle string, a
 		return nil, err
 	}
 
-	renames := make([]RenameEntry, 0, len(svcResult.Renames))
-	for old, newName := range svcResult.Renames {
-		renames = append(renames, RenameEntry{Old: old, New: newName})
-	}
-
 	return &RenameResult{
 		Node: RenameNodeInfo{
 			OldTitle: svcResult.OldTitle,
 			NewTitle: svcResult.NewTitle,
 		},
-		Renames: renames,
+		Renames: convertRenames(svcResult.Renames),
 	}, nil
 }
 
@@ -287,13 +277,8 @@ func (a *compactAdapter) Compact(ctx context.Context, selector string, apply boo
 		return nil, err
 	}
 
-	renames := make([]RenameEntry, 0, len(svcResult.Renames))
-	for old, newName := range svcResult.Renames {
-		renames = append(renames, RenameEntry{Old: old, New: newName})
-	}
-
 	result := &CompactResult{
-		Renames:       renames,
+		Renames:       convertRenames(svcResult.Renames),
 		FilesAffected: len(svcResult.Renames),
 	}
 	if result.FilesAffected > 50 {
@@ -340,6 +325,15 @@ func (a *typesAdapter) RemoveType(ctx context.Context, docType, selector string,
 		Node:     NodeInfo{MP: svcResult.NodeMP, SID: svcResult.NodeSID},
 		Filename: svcResult.Filename,
 	}, nil
+}
+
+// convertRenames converts a rename map to a slice of RenameEntry.
+func convertRenames(m map[string]string) []RenameEntry {
+	entries := make([]RenameEntry, 0, len(m))
+	for old, newName := range m {
+		entries = append(entries, RenameEntry{Old: old, New: newName})
+	}
+	return entries
 }
 
 // convertFinding converts a domain.Finding to a cmd.CheckFinding.
