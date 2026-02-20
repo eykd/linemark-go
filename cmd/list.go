@@ -153,10 +153,10 @@ func renderTreeText(w io.Writer, roots []*treeNode) {
 	if len(roots) > 1 && rootsWithChildren == 1 {
 		first := roots[0]
 		fmt.Fprintf(w, "%s (%s)\n", first.Title, first.SID)
-		allChildren := make([]*treeNode, 0, len(first.Children)+len(roots)-1)
-		allChildren = append(allChildren, first.Children...)
-		allChildren = append(allChildren, roots[1:]...)
-		renderChildren(w, allChildren, "")
+		mergedChildren := make([]*treeNode, 0, len(first.Children)+len(roots)-1)
+		mergedChildren = append(mergedChildren, first.Children...)
+		mergedChildren = append(mergedChildren, roots[1:]...)
+		renderChildren(w, mergedChildren, "")
 	} else {
 		for _, root := range roots {
 			fmt.Fprintf(w, "%s (%s)\n", root.Title, root.SID)
