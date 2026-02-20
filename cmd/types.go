@@ -105,6 +105,8 @@ func newTypesAddCmd(svc TypesService) *cobra.Command {
 
 			if jsonOutput || GetJSON() {
 				writeJSON(cmd.OutOrStdout(), result)
+			} else if isDryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "Would add %s\n", result.Filename)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "Added %s\n", result.Filename)
 			}
@@ -141,6 +143,8 @@ func newTypesRemoveCmd(svc TypesService) *cobra.Command {
 
 			if jsonOutput || GetJSON() {
 				writeJSON(cmd.OutOrStdout(), result)
+			} else if isDryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "Would remove %s\n", result.Filename)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "Removed %s\n", result.Filename)
 			}

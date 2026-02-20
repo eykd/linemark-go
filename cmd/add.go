@@ -94,6 +94,10 @@ func NewAddCmd(runner AddRunner) *cobra.Command {
 
 			if jsonOutput || GetJSON() {
 				writeJSON(cmd.OutOrStdout(), result)
+			} else if isDryRun {
+				for _, f := range result.FilesPlanned {
+					fmt.Fprintf(cmd.OutOrStdout(), "Would create %s\n", f)
+				}
 			} else {
 				for _, f := range result.FilesCreated {
 					fmt.Fprintf(cmd.OutOrStdout(), "Created %s\n", f)

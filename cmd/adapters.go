@@ -81,6 +81,9 @@ func (a *addAdapter) Add(ctx context.Context, title string, apply bool, p Placem
 		opts = append(opts, outline.AddAfter(node.MP.String()))
 	}
 
+	if !apply {
+		opts = append(opts, outline.AddApply(false))
+	}
 	svcResult, err := a.svc.Add(ctx, title, parentMPStr, opts...)
 	if err != nil {
 		return nil, err
@@ -306,6 +309,24 @@ func (a *typesAdapter) ListTypes(ctx context.Context, selector string) (*TypesLi
 }
 
 func (a *typesAdapter) AddType(ctx context.Context, docType, selector string, apply bool) (*TypesModifyResult, error) {
+	if !apply {
+		if err := domain.ValidateDocType(docType); err != nil {
+			return nil, err
+		}
+		sel, err := domain.ParseSelector(selector)
+		if err != nil {
+			return nil, err
+		}
+		node, err := a.svc.ResolveSelector(ctx, sel)
+		if err != nil {
+			return nil, err
+		}
+		filename := domain.GenerateFilename(node.MP.String(), node.SID, docType, "")
+		return &TypesModifyResult{
+			Node:     NodeInfo{MP: node.MP.String(), SID: node.SID},
+			Filename: filename,
+		}, nil
+	}
 	svcResult, err := a.svc.AddType(ctx, docType, selector)
 	if err != nil {
 		return nil, err
@@ -317,6 +338,24 @@ func (a *typesAdapter) AddType(ctx context.Context, docType, selector string, ap
 }
 
 func (a *typesAdapter) RemoveType(ctx context.Context, docType, selector string, apply bool) (*TypesModifyResult, error) {
+	if !apply {
+		if err := domain.ValidateDocType(docType); err != nil {
+			return nil, err
+		}
+		sel, err := domain.ParseSelector(selector)
+		if err != nil {
+			return nil, err
+		}
+		node, err := a.svc.ResolveSelector(ctx, sel)
+		if err != nil {
+			return nil, err
+		}
+		filename := domain.GenerateFilename(node.MP.String(), node.SID, docType, "")
+		return &TypesModifyResult{
+			Node:     NodeInfo{MP: node.MP.String(), SID: node.SID},
+			Filename: filename,
+		}, nil
+	}
 	svcResult, err := a.svc.RemoveType(ctx, docType, selector)
 	if err != nil {
 		return nil, err
