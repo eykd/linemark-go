@@ -127,15 +127,55 @@ func findingsByType(findings []domain.Finding, typ domain.FindingType) []domain.
 	return result
 }
 
+type findingDetectionTest struct {
+	name         string
+	files        []string
+	contents     map[string]string
+	wantFound    bool
+	wantPath     string
+	wantSeverity domain.FindingSeverity
+}
+
+func runFindingDetectionTests(t *testing.T, tests []findingDetectionTest, findingType domain.FindingType) {
+	t.Helper()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := &fakeDirectoryReader{files: tt.files}
+			svc := NewOutlineService(reader, nil, &mockLocker{}, nil)
+
+			if tt.contents != nil {
+				svc.contentReader = &fakeContentReader{contents: tt.contents}
+			}
+
+			result, err := svc.Check(context.Background())
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			matched := findingsByType(result.Findings, findingType)
+
+			if tt.wantFound && len(matched) == 0 {
+				t.Fatalf("expected %s finding, got none; all findings: %v", findingType, result.Findings)
+			}
+			if !tt.wantFound && len(matched) > 0 {
+				t.Fatalf("expected no %s findings, got: %v", findingType, matched)
+			}
+
+			if tt.wantFound {
+				f := matched[0]
+				if f.Path != tt.wantPath {
+					t.Errorf("finding.Path = %q, want %q", f.Path, tt.wantPath)
+				}
+				if f.Severity != tt.wantSeverity {
+					t.Errorf("finding.Severity = %q, want %q", f.Severity, tt.wantSeverity)
+				}
+			}
+		})
+	}
+}
+
 func TestOutlineService_Check_DetectsSlugDrift(t *testing.T) {
-	tests := []struct {
-		name         string
-		files        []string
-		contents     map[string]string
-		wantDrift    bool
-		wantPath     string
-		wantSeverity domain.FindingSeverity
-	}{
+	runFindingDetectionTests(t, []findingDetectionTest{
 		{
 			name: "detects slug drift when filename slug differs from title",
 			files: []string{
@@ -145,7 +185,7 @@ func TestOutlineService_Check_DetectsSlugDrift(t *testing.T) {
 			contents: map[string]string{
 				"100_SID001AABB_draft_wrong-slug.md": "---\ntitle: Correct Title\n---\n",
 			},
-			wantDrift:    true,
+			wantFound:    true,
 			wantPath:     "100_SID001AABB_draft_wrong-slug.md",
 			wantSeverity: domain.SeverityWarning,
 		},
@@ -158,7 +198,7 @@ func TestOutlineService_Check_DetectsSlugDrift(t *testing.T) {
 			contents: map[string]string{
 				"100_SID001AABB_draft_correct-title.md": "---\ntitle: Correct Title\n---\n",
 			},
-			wantDrift: false,
+			wantFound: false,
 		},
 		{
 			name: "no drift when content reader is nil",
@@ -167,7 +207,7 @@ func TestOutlineService_Check_DetectsSlugDrift(t *testing.T) {
 				"100_SID001AABB_notes.md",
 			},
 			contents:  nil,
-			wantDrift: false,
+			wantFound: false,
 		},
 		{
 			name: "skips non-draft documents",
@@ -178,55 +218,13 @@ func TestOutlineService_Check_DetectsSlugDrift(t *testing.T) {
 			contents: map[string]string{
 				"100_SID001AABB_draft_correct-title.md": "---\ntitle: Correct Title\n---\n",
 			},
-			wantDrift: false,
+			wantFound: false,
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			reader := &fakeDirectoryReader{files: tt.files}
-			svc := NewOutlineService(reader, nil, &mockLocker{}, nil)
-
-			if tt.contents != nil {
-				svc.contentReader = &fakeContentReader{contents: tt.contents}
-			}
-
-			result, err := svc.Check(context.Background())
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			slugDriftFindings := findingsByType(result.Findings, domain.FindingSlugDrift)
-
-			if tt.wantDrift && len(slugDriftFindings) == 0 {
-				t.Fatalf("expected slug_drift finding, got none; all findings: %v", result.Findings)
-			}
-			if !tt.wantDrift && len(slugDriftFindings) > 0 {
-				t.Fatalf("expected no slug_drift findings, got: %v", slugDriftFindings)
-			}
-
-			if tt.wantDrift {
-				f := slugDriftFindings[0]
-				if f.Path != tt.wantPath {
-					t.Errorf("finding.Path = %q, want %q", f.Path, tt.wantPath)
-				}
-				if f.Severity != tt.wantSeverity {
-					t.Errorf("finding.Severity = %q, want %q", f.Severity, tt.wantSeverity)
-				}
-			}
-		})
-	}
+	}, domain.FindingSlugDrift)
 }
 
 func TestOutlineService_Check_DetectsMalformedFrontmatter(t *testing.T) {
-	tests := []struct {
-		name          string
-		files         []string
-		contents      map[string]string
-		wantMalformed bool
-		wantPath      string
-		wantSeverity  domain.FindingSeverity
-	}{
+	runFindingDetectionTests(t, []findingDetectionTest{
 		{
 			name: "detects malformed YAML in draft frontmatter",
 			files: []string{
@@ -236,9 +234,9 @@ func TestOutlineService_Check_DetectsMalformedFrontmatter(t *testing.T) {
 			contents: map[string]string{
 				"100_SID001AABB_draft_chapter-one.md": "---\ntitle: [unclosed\n---\n",
 			},
-			wantMalformed: true,
-			wantPath:      "100_SID001AABB_draft_chapter-one.md",
-			wantSeverity:  domain.SeverityError,
+			wantFound:    true,
+			wantPath:     "100_SID001AABB_draft_chapter-one.md",
+			wantSeverity: domain.SeverityError,
 		},
 		{
 			name: "no finding for valid frontmatter",
@@ -249,7 +247,7 @@ func TestOutlineService_Check_DetectsMalformedFrontmatter(t *testing.T) {
 			contents: map[string]string{
 				"100_SID001AABB_draft_chapter-one.md": "---\ntitle: Chapter One\n---\n",
 			},
-			wantMalformed: false,
+			wantFound: false,
 		},
 		{
 			name: "no finding when content reader is nil",
@@ -257,8 +255,8 @@ func TestOutlineService_Check_DetectsMalformedFrontmatter(t *testing.T) {
 				"100_SID001AABB_draft_chapter-one.md",
 				"100_SID001AABB_notes.md",
 			},
-			contents:      nil,
-			wantMalformed: false,
+			contents:  nil,
+			wantFound: false,
 		},
 		{
 			name: "skips non-draft documents",
@@ -270,44 +268,9 @@ func TestOutlineService_Check_DetectsMalformedFrontmatter(t *testing.T) {
 				"100_SID001AABB_draft_chapter-one.md": "---\ntitle: Chapter One\n---\n",
 				"100_SID001AABB_notes.md":             "---\ntitle: [unclosed\n---\n",
 			},
-			wantMalformed: false,
+			wantFound: false,
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			reader := &fakeDirectoryReader{files: tt.files}
-			svc := NewOutlineService(reader, nil, &mockLocker{}, nil)
-
-			if tt.contents != nil {
-				svc.contentReader = &fakeContentReader{contents: tt.contents}
-			}
-
-			result, err := svc.Check(context.Background())
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			malformedFindings := findingsByType(result.Findings, domain.FindingMalformedFrontmatter)
-
-			if tt.wantMalformed && len(malformedFindings) == 0 {
-				t.Fatalf("expected malformed_frontmatter finding, got none; all findings: %v", result.Findings)
-			}
-			if !tt.wantMalformed && len(malformedFindings) > 0 {
-				t.Fatalf("expected no malformed_frontmatter findings, got: %v", malformedFindings)
-			}
-
-			if tt.wantMalformed {
-				f := malformedFindings[0]
-				if f.Path != tt.wantPath {
-					t.Errorf("finding.Path = %q, want %q", f.Path, tt.wantPath)
-				}
-				if f.Severity != tt.wantSeverity {
-					t.Errorf("finding.Severity = %q, want %q", f.Severity, tt.wantSeverity)
-				}
-			}
-		})
-	}
+	}, domain.FindingMalformedFrontmatter)
 }
 
 func TestOutlineService_Check_FindingSeverities(t *testing.T) {
