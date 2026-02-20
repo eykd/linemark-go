@@ -117,6 +117,16 @@ func TestOutlineService_Check_PropagatesBuildOutlineError(t *testing.T) {
 	}
 }
 
+func findingsByType(findings []domain.Finding, typ domain.FindingType) []domain.Finding {
+	var result []domain.Finding
+	for _, f := range findings {
+		if f.Type == typ {
+			result = append(result, f)
+		}
+	}
+	return result
+}
+
 func TestOutlineService_Check_DetectsSlugDrift(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -186,12 +196,7 @@ func TestOutlineService_Check_DetectsSlugDrift(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			var slugDriftFindings []domain.Finding
-			for _, f := range result.Findings {
-				if f.Type == domain.FindingSlugDrift {
-					slugDriftFindings = append(slugDriftFindings, f)
-				}
-			}
+			slugDriftFindings := findingsByType(result.Findings, domain.FindingSlugDrift)
 
 			if tt.wantDrift && len(slugDriftFindings) == 0 {
 				t.Fatalf("expected slug_drift finding, got none; all findings: %v", result.Findings)
@@ -283,12 +288,7 @@ func TestOutlineService_Check_DetectsMalformedFrontmatter(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			var malformedFindings []domain.Finding
-			for _, f := range result.Findings {
-				if f.Type == domain.FindingMalformedFrontmatter {
-					malformedFindings = append(malformedFindings, f)
-				}
-			}
+			malformedFindings := findingsByType(result.Findings, domain.FindingMalformedFrontmatter)
 
 			if tt.wantMalformed && len(malformedFindings) == 0 {
 				t.Fatalf("expected malformed_frontmatter finding, got none; all findings: %v", result.Findings)
