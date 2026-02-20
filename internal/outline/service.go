@@ -343,6 +343,7 @@ func (s *OutlineService) Check(ctx context.Context) (*CheckResult, error) {
 
 	findings = append(findings, buildFindings...)
 	findings = append(findings, findMissingDocTypeFindings(outline.Nodes)...)
+	findings = append(findings, s.findSlugDriftFindingsImpl(ctx, outline.Nodes)...)
 
 	return &CheckResult{Findings: findings}, nil
 }
@@ -836,6 +837,43 @@ func findMissingDocTypeFindings(nodes []domain.Node) []domain.Finding {
 				Severity: domain.SeverityError,
 				Message:  fmt.Sprintf("node %s missing notes", node.SID),
 			})
+		}
+	}
+	return findings
+}
+
+// findSlugDriftFindingsImpl checks draft documents for slug drift.
+func (s *OutlineService) findSlugDriftFindingsImpl(ctx context.Context, nodes []domain.Node) []domain.Finding {
+	if s.contentReader == nil {
+		return nil
+	}
+	var findings []domain.Finding
+	for _, node := range nodes {
+		for _, doc := range node.Documents {
+			if doc.Type != domain.DocTypeDraft {
+				continue
+			}
+			content, err := s.contentReader.ReadFile(ctx, doc.Filename)
+			if err != nil {
+				continue
+			}
+			title, err := s.fmHandler.GetTitle(content)
+			if err != nil || title == "" {
+				continue
+			}
+			expectedSlug := s.slugifier.Slug(title)
+			pf, err := domain.ParseFilename(doc.Filename)
+			if err != nil {
+				continue
+			}
+			if pf.Slug != expectedSlug {
+				findings = append(findings, domain.Finding{
+					Type:     domain.FindingSlugDrift,
+					Severity: domain.SeverityWarning,
+					Message:  fmt.Sprintf("slug drift: %s (expected %s)", doc.Filename, expectedSlug),
+					Path:     doc.Filename,
+				})
+			}
 		}
 	}
 	return findings
