@@ -96,18 +96,20 @@ See `references/gwt-writing-guide.md` for detailed examples and review checklist
 
 ### Architecture
 
-The acceptance pipeline generates **ephemeral** test stubs:
+The acceptance pipeline generates test stubs with merge support:
 
 ```
 specs/*.txt → parse → IR JSON → generate → generated-acceptance-tests/*_test.go
 ```
 
-`run-acceptance-tests.sh` **deletes** `generated-acceptance-tests/` on every run.
 Generated stubs contain `t.Fatal("acceptance test not yet bound")` — they are
-scaffolds showing what needs to be tested, not the final tests.
+scaffolds showing what needs to be tested. The pipeline **preserves bound
+implementations** across regeneration: any test function that does not contain
+the unbound sentinel is kept as-is when stubs are regenerated.
 
-**Bound tests** must live in a persistent location (not in `generated-acceptance-tests/`).
-They replace the stubs by implementing real assertions against the CLI.
+**Edit generated files directly.** Replace `t.Fatal("acceptance test not yet bound")`
+with real test code. The pipeline will preserve your implementations on subsequent runs.
+Use `just acceptance-regen` to force-regenerate all stubs (destroys bound implementations).
 
 ### CLI Execution Pattern
 

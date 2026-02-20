@@ -30,6 +30,7 @@ readonly STEP_RED="RED"
 readonly STEP_GREEN="GREEN"
 readonly STEP_REFACTOR="REFACTOR"
 readonly STEP_REVIEW="REVIEW"
+readonly STEP_BIND="BIND"
 readonly STEP_ACCEPTANCE="ACCEPTANCE"
 readonly REVIEW_OUTPUT_FILE=".ralph-review.json"
 readonly ACCEPTANCE_OUTPUT_FILE=".ralph-acceptance.json"
@@ -1489,18 +1490,118 @@ Incomplete:
 PROMPT_EOF
 }
 
+# Generate BIND step prompt: write acceptance test implementations from spec
+# Arguments: task_json, cycle_number, spec_file, [retry_context]
+generate_bind_prompt() {
+    local task_json="$1"
+    local cycle="$2"
+    local spec_file="$3"
+    local retry_context="${4:-}"
+    local task_title task_id task_description
+    local acceptance_skill
+
+    task_title=$(echo "$task_json" | jq -r '.title // "unknown"')
+    task_id=$(echo "$task_json" | jq -r '.id // "unknown"')
+    task_description=$(echo "$task_json" | jq -r '.description // ""')
+
+    acceptance_skill=$(load_skill_content "acceptance-tests")
+
+    cat <<PROMPT_EOF
+## Non-Interactive Mode
+You are running in ralph's automation loop (non-interactive).
+You CANNOT ask questions or wait for user input.
+Communicate status ONLY through beads task management.
+
+## TDD Step: BIND (Cycle $cycle)
+
+### Task Details
+Title: $task_title
+ID: $task_id
+
+Description:
+$task_description
+
+### Your Mission: Write Acceptance Test Implementations
+
+Read the spec file and the generated acceptance test stubs. For each stub
+containing \`t.Fatal("acceptance test not yet bound")\`, replace the sentinel
+with a real test implementation.
+
+**Spec file:** \`$spec_file\`
+**Generated tests:** \`generated-acceptance-tests/\`
+
+### Binding Pattern
+
+For each test function:
+1. Each GIVEN step → file system setup using \`t.TempDir()\`
+2. Each WHEN step → CLI invocation via \`exec.Command("go", "run", ".", subcommand, args...)\`
+3. Each THEN step → output assertion using \`strings.Contains\` or similar
+
+Example:
+\`\`\`go
+func Test_Some_scenario(t *testing.T) {
+    dir := t.TempDir()
+    // GIVEN: set up files
+    // ...
+
+    cmd := exec.Command("go", "run", ".", "subcommand")
+    cmd.Dir = dir
+    output, err := cmd.CombinedOutput()
+    if err != nil {
+        t.Fatalf("command failed: %v\n%s", err, output)
+    }
+
+    // THEN: assert on output
+    if !strings.Contains(string(output), "expected") {
+        t.Errorf("expected output, got: %s", output)
+    }
+}
+\`\`\`
+
+### Rules
+1. Edit the generated test files directly in \`generated-acceptance-tests/\`
+2. Replace ONLY \`t.Fatal("acceptance test not yet bound")\` with real code
+3. Add necessary imports (\`"os"\`, \`"os/exec"\`, \`"path/filepath"\`, \`"strings"\`)
+4. The pipeline preserves bound implementations across regeneration
+5. Do NOT modify the spec file
+6. These tests are expected to FAIL until the feature is built — that's OK
+
+### Bead Management
+- Comment progress: \`npx bd comment $task_id "BIND: wrote acceptance test implementations for ..."\`
+- Do NOT close the bead (acceptance check validates later)
+
+### Do NOT Commit
+Ralph handles commits after BIND. Do NOT run git commit.
+PROMPT_EOF
+
+    if [[ -n "$retry_context" ]]; then
+        cat <<PROMPT_EOF
+
+### Retry Context (Previous Attempt Had Issues)
+$retry_context
+PROMPT_EOF
+    fi
+
+    cat <<PROMPT_EOF
+
+### Acceptance Tests Reference
+$acceptance_skill
+PROMPT_EOF
+}
+
 ##############################################################################
 # TDD cycle orchestration
 ##############################################################################
 
 # Execute one TDD step with up to TDD_STEP_RETRIES semantic retries.
-# Arguments: step_name, task_json, cycle_number, [remaining_items_for_red]
+# Arguments: step_name, task_json, cycle_number, [remaining_items_for_red], [spec_file]
 # Returns 0 on success, 1 on failure after all retries exhausted.
 execute_tdd_step() {
     local step="$1"
     local task_json="$2"
     local cycle="$3"
     local remaining_items="${4:-}"
+    local spec_file="${5:-}"
     local attempt=0
     local prompt retry_context=""
     local test_output
@@ -1524,6 +1625,9 @@ execute_tdd_step() {
                 ;;
             "$STEP_REVIEW")
                 prompt=$(generate_review_prompt "$task_json" "$cycle")
+                ;;
+            "$STEP_BIND")
+                prompt=$(generate_bind_prompt "$task_json" "$cycle" "$spec_file" "$retry_context")
                 ;;
             *)
                 log ERROR "Unknown TDD step: $step"
@@ -1549,6 +1653,12 @@ execute_tdd_step() {
         # REVIEW step: no test verification, uses JSON output instead
         if [[ "$step" == "$STEP_REVIEW" ]]; then
             log INFO "REVIEW step complete (verification via JSON output)"
+            return 0
+        fi
+
+        # BIND step: no test verification (tests are expected to fail until feature is built)
+        if [[ "$step" == "$STEP_BIND" ]]; then
+            log INFO "BIND step complete (acceptance check validates bindings)"
             return 0
         fi
 
@@ -1821,8 +1931,8 @@ run_acceptance_check() {
 
     log INFO "Running acceptance check for $spec_file"
 
-    # Clean previous artifacts
-    rm -rf generated-acceptance-tests/ acceptance-pipeline/ir/
+    # Clean IR artifacts (generated tests are preserved for bound implementations)
+    rm -rf acceptance-pipeline/ir/
 
     # Run the pipeline
     if ! go run ./acceptance/cmd/pipeline -action=run 2>&1; then
@@ -1860,7 +1970,8 @@ execute_atdd_cycle() {
     # DRY RUN: show prompts and return
     if [[ "$DRY_RUN" == "true" ]]; then
         log INFO "[DRY RUN] ATDD cycle for $task_id with spec $spec_file"
-        log INFO "[DRY RUN] Would run acceptance check, then inner TDD cycles"
+        log INFO "[DRY RUN] Would run acceptance check, then BIND, then inner TDD cycles"
+        execute_tdd_step "$STEP_BIND" "$task_json" 0 "" "$spec_file"
         execute_unit_tdd_cycle "$task_json" "$epic_id"
         return 0
     fi
@@ -1876,6 +1987,12 @@ execute_atdd_cycle() {
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>" 2>/dev/null || true
         return 0
+    fi
+
+    # --- BIND: Write acceptance test implementations ---
+    log INFO "=== BIND: Writing acceptance test implementations ==="
+    if ! execute_tdd_step "$STEP_BIND" "$task_json" 0 "" "$spec_file"; then
+        log WARN "BIND step failed - continuing with stubs"
     fi
 
     # Inner TDD loop with acceptance check after each cycle

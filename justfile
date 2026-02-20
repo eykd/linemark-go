@@ -111,5 +111,10 @@ acceptance-generate:
 acceptance-run:
     go test -v ./generated-acceptance-tests/...
 
+# Force-regenerate all acceptance stubs (destroys bound implementations!)
+acceptance-regen:
+    rm -rf generated-acceptance-tests/ acceptance-pipeline/ir/
+    ./run-acceptance-tests.sh
+
 # Run both unit tests and acceptance tests
 test-all: test acceptance

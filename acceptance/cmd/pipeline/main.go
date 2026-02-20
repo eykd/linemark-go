@@ -118,12 +118,18 @@ func runGenerate() error {
 			return fmt.Errorf("deserializing %s: %w", irFile, err)
 		}
 
-		testCode, err := acceptance.GenerateTests(feature)
+		testFile := filepath.Join(testDir, strings.TrimSuffix(filepath.Base(irFile), ".json")+"_test.go")
+
+		// Read existing test file to preserve bound implementations
+		existingSource := ""
+		if data, err := os.ReadFile(testFile); err == nil {
+			existingSource = string(data)
+		}
+
+		testCode, err := acceptance.GenerateTests(feature, existingSource)
 		if err != nil {
 			return fmt.Errorf("generating tests for %s: %w", irFile, err)
 		}
-
-		testFile := filepath.Join(testDir, strings.TrimSuffix(filepath.Base(irFile), ".json")+"_test.go")
 		if err := acceptance.WriteTestFileImpl(testFile, testCode); err != nil {
 			return fmt.Errorf("writing test for %s: %w", irFile, err)
 		}
