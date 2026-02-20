@@ -19,7 +19,7 @@ func sanitizeFuncName(desc string) string {
 }
 
 // GenerateTests transforms a Feature into executable Go test source code.
-// Each scenario becomes a test function with t.Skip stubs that are skipped
+// Each scenario becomes a test function with t.Fatal stubs that fail
 // until step bindings are implemented.
 func GenerateTests(feature *Feature) (string, error) {
 	var b strings.Builder
@@ -44,7 +44,7 @@ func GenerateTests(feature *Feature) (string, error) {
 			fmt.Fprintf(&b, "\t// %s %s\n", step.Keyword, step.Text)
 		}
 		fmt.Fprintf(&b, "\n")
-		fmt.Fprintf(&b, "\tt.Skip(\"acceptance test not yet bound\")\n")
+		fmt.Fprintf(&b, "\tt.Fatal(\"acceptance test not yet bound\")\n")
 		fmt.Fprintf(&b, "}\n")
 	}
 

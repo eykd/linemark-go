@@ -46,9 +46,9 @@ func TestGenerateTests_SingleScenario(t *testing.T) {
 		t.Error("output missing test function")
 	}
 
-	// Must contain t.Skip stub
-	if !strings.Contains(output, "t.Skip") {
-		t.Error("output missing t.Skip stub")
+	// Must contain t.Fatal stub
+	if !strings.Contains(output, "t.Fatal") {
+		t.Error("output missing t.Fatal stub")
 	}
 
 	// Must reference the scenario description

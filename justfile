@@ -4,13 +4,13 @@
 # Default recipe: run all quality checks
 default: check
 
-# Run all tests
+# Run all unit tests (excludes generated acceptance tests)
 test:
-    go test ./...
+    go test $(go list ./... | grep -v '/generated-acceptance-tests$')
 
-# Run tests with verbose output
+# Run tests with verbose output (excludes generated acceptance tests)
 test-verbose:
-    go test -v ./...
+    go test -v $(go list ./... | grep -v '/generated-acceptance-tests$')
 
 # Run tests with coverage report (excludes main package)
 test-cover:
@@ -31,7 +31,7 @@ test-cover-html: test-cover
 test-cover-check:
     #!/usr/bin/env bash
     set -uo pipefail
-    PACKAGES=$(go list ./... | grep -v '^github.com/eykd/linemark-go$' | grep -v '/cmd/pipeline$' | grep -v '/internal/fs$')
+    PACKAGES=$(go list ./... | grep -v '^github.com/eykd/linemark-go$' | grep -v '/cmd/pipeline$' | grep -v '/internal/fs$' | grep -v '/generated-acceptance-tests$')
     go test -coverprofile=coverage.out $PACKAGES || exit 1
     # Check that all non-Impl functions are at 100%
     # Filter out: Impl functions (exempt), main (exempt), total line, and 100% functions
