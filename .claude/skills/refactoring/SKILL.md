@@ -40,6 +40,7 @@ description: 'Use when: (1) tests are green and code needs improvement, (2) code
 | [Divergent Change](#divergent-change) | One struct changes for many reasons | [moving.md](./references/moving.md)               |
 | [Shotgun Surgery](#shotgun-surgery)   | One change touches many packages    | [moving.md](./references/moving.md)               |
 | [Feature Envy](#feature-envy)         | Method uses another struct's data   | [moving.md](./references/moving.md)               |
+| [Dual-Purpose Parameter](#dual-purpose-parameter) | Parameter serves two roles that can diverge | [api.md](./references/api.md) |
 | [Message Chains](#message-chains)     | a.B().C().D() navigation chains     | [encapsulation.md](./references/encapsulation.md) |
 
 ### Is there unnecessary complexity?

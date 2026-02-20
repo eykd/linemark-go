@@ -50,6 +50,7 @@ Coverage exemptions (per `.claude/skills/go-tdd/references/coverage.md`):
 - `*Impl` functions that wrap external commands (exec.Command, os operations)
 - These are tested via integration tests, not unit tests
 - The coverage check filters out Impl functions from the calculation
+- **Build config consistency**: Coverage package exclusions are defined in both `lefthook.yml` (pre-commit) and `justfile` (test-cover-check). These must stay in sync — update both when adding package exclusions.
 
 ### CLI Smoke Test
 

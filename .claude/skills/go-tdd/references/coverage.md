@@ -348,3 +348,17 @@ When following TDD strictly:
 When implementing multiple similar functions (e.g., adapters, handlers), it is tempting to write all code first and add tests later. This violates TDD and reliably produces coverage gaps in error paths.
 
 **Rule**: Complete the full Red-Green-Refactor cycle for each function before starting the next. Run `just test-cover-check` after each function, not after the batch.
+
+### Scenario Coverage vs Line Coverage
+
+100% line coverage does not guarantee all behavior paths are tested. A function can have every line covered while missing critical *combinations* of inputs.
+
+**Example**: A recursive function that compacts file paths had 100% line coverage. Tests covered:
+- Root-level renumbering (parent changes, no children)
+- Scoped compacting (children change, parent stays same)
+
+But never tested both simultaneously — parent renumbered AND children compacted in the same call. This combination triggered a bug where the function composed old/new paths incorrectly.
+
+**Rule**: For recursive or multi-step operations, test the *cross-product* of independent axes:
+- If step A can change X, and step B can change Y, test the case where both change
+- Table-driven tests make this natural — add the combination row
