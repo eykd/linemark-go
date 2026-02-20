@@ -45,6 +45,7 @@ func (a *addAdapter) Add(ctx context.Context, title string, apply bool, p Placem
 	var parentMPStr string
 	var opts []outline.AddOption
 
+	// Resolve the explicit parent, if any.
 	switch {
 	case p.ChildOf != "":
 		sel, _ := domain.ParseSelector(p.ChildOf)
@@ -61,14 +62,20 @@ func (a *addAdapter) Add(ctx context.Context, title string, apply bool, p Placem
 			return nil, err
 		}
 		parentMPStr = parentMP(node.MP.String())
+	}
 
+	// Resolve Before/After positioning. When ChildOf/SiblingOf was not given,
+	// the parent is derived from the reference node itself.
+	switch {
 	case p.Before != "":
 		sel, _ := domain.ParseSelector(p.Before)
 		node, err := a.svc.ResolveSelector(ctx, sel)
 		if err != nil {
 			return nil, err
 		}
-		parentMPStr = parentMP(node.MP.String())
+		if parentMPStr == "" {
+			parentMPStr = parentMP(node.MP.String())
+		}
 		opts = append(opts, outline.AddBefore(node.MP.String()))
 
 	case p.After != "":
@@ -77,29 +84,10 @@ func (a *addAdapter) Add(ctx context.Context, title string, apply bool, p Placem
 		if err != nil {
 			return nil, err
 		}
-		parentMPStr = parentMP(node.MP.String())
-		opts = append(opts, outline.AddAfter(node.MP.String()))
-	}
-
-	// When ChildOf or SiblingOf is combined with Before/After, also apply
-	// the positioning option (the parent was already resolved above).
-	if p.ChildOf != "" || p.SiblingOf != "" {
-		switch {
-		case p.Before != "":
-			sel, _ := domain.ParseSelector(p.Before)
-			node, err := a.svc.ResolveSelector(ctx, sel)
-			if err != nil {
-				return nil, err
-			}
-			opts = append(opts, outline.AddBefore(node.MP.String()))
-		case p.After != "":
-			sel, _ := domain.ParseSelector(p.After)
-			node, err := a.svc.ResolveSelector(ctx, sel)
-			if err != nil {
-				return nil, err
-			}
-			opts = append(opts, outline.AddAfter(node.MP.String()))
+		if parentMPStr == "" {
+			parentMPStr = parentMP(node.MP.String())
 		}
+		opts = append(opts, outline.AddAfter(node.MP.String()))
 	}
 
 	if !apply {
