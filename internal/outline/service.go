@@ -809,9 +809,10 @@ func (s *OutlineService) renameImpl(ctx context.Context, selector, newTitle stri
 }
 
 // findNodeMP finds the MP and SID of the first node matching the given selector string.
+// The selector may be either a materialized path (e.g. "100") or a stable ID (e.g. "SID001AABB").
 func findNodeMP(parsed []domain.ParsedFile, selector string) (string, string, error) {
 	for _, pf := range parsed {
-		if pf.MP == selector {
+		if pf.MP == selector || pf.SID == selector {
 			return pf.MP, pf.SID, nil
 		}
 	}
