@@ -625,3 +625,157 @@ func TestListCmd_GlobalJSONFlag(t *testing.T) {
 		t.Errorf("expected valid JSON output with global --json flag, got: %s", buf.String())
 	}
 }
+
+// threeRootOutline returns a flat outline matching the bug description:
+// three root nodes where the first two have children.
+// Expected text rendering:
+//
+//	act-one (A1B2C3D4E5F6)
+//	├── scene-1 (A1B2C3D4E5G7)
+//	└── scene-2 (A1B2C3D4E5H8)
+//	act-two (B2C3D4E5F6G7)
+//	└── scene-3 (B2C3D4E5F6H8)
+//	act-three (C3D4E5F6G7H8)
+func threeRootOutline() *ListResult {
+	return &ListResult{
+		Outline: domain.Outline{
+			Nodes: []domain.Node{
+				{
+					MP:        mustMP("001"),
+					SID:       "A1B2C3D4E5F6",
+					Title:     "act-one",
+					Documents: []domain.Document{{Type: "draft", Filename: "001_A1B2C3D4E5F6_draft_act-one.md"}},
+				},
+				{
+					MP:        mustMP("001-100"),
+					SID:       "A1B2C3D4E5G7",
+					Title:     "scene-1",
+					Documents: []domain.Document{{Type: "draft", Filename: "001-100_A1B2C3D4E5G7_draft_scene-1.md"}},
+				},
+				{
+					MP:        mustMP("001-200"),
+					SID:       "A1B2C3D4E5H8",
+					Title:     "scene-2",
+					Documents: []domain.Document{{Type: "draft", Filename: "001-200_A1B2C3D4E5H8_draft_scene-2.md"}},
+				},
+				{
+					MP:        mustMP("002"),
+					SID:       "B2C3D4E5F6G7",
+					Title:     "act-two",
+					Documents: []domain.Document{{Type: "draft", Filename: "002_B2C3D4E5F6G7_draft_act-two.md"}},
+				},
+				{
+					MP:        mustMP("002-100"),
+					SID:       "B2C3D4E5F6H8",
+					Title:     "scene-3",
+					Documents: []domain.Document{{Type: "draft", Filename: "002-100_B2C3D4E5F6H8_draft_scene-3.md"}},
+				},
+				{
+					MP:        mustMP("003"),
+					SID:       "C3D4E5F6G7H8",
+					Title:     "act-three",
+					Documents: []domain.Document{{Type: "draft", Filename: "003_C3D4E5F6G7H8_draft_act-three.md"}},
+				},
+			},
+		},
+	}
+}
+
+// TestRenderTreeText_MultipleRootsRenderedAtTopLevel verifies that each root node
+// is printed at the top level (no branch characters), and sibling roots are NOT
+// displayed as children of the first root.
+func TestRenderTreeText_MultipleRootsRenderedAtTopLevel(t *testing.T) {
+	roots := []*treeNode{
+		{
+			Title: "act-one", SID: "A1B2C3D4E5F6",
+			Children: []*treeNode{
+				{Title: "scene-1", SID: "A1B2C3D4E5G7", Children: []*treeNode{}},
+				{Title: "scene-2", SID: "A1B2C3D4E5H8", Children: []*treeNode{}},
+			},
+		},
+		{
+			Title: "act-two", SID: "B2C3D4E5F6G7",
+			Children: []*treeNode{
+				{Title: "scene-3", SID: "B2C3D4E5F6H8", Children: []*treeNode{}},
+			},
+		},
+		{
+			Title:    "act-three",
+			SID:      "C3D4E5F6G7H8",
+			Children: []*treeNode{},
+		},
+	}
+
+	var buf bytes.Buffer
+	renderTreeText(&buf, roots)
+
+	want := strings.Join([]string{
+		"act-one (A1B2C3D4E5F6)",
+		"├── scene-1 (A1B2C3D4E5G7)",
+		"└── scene-2 (A1B2C3D4E5H8)",
+		"act-two (B2C3D4E5F6G7)",
+		"└── scene-3 (B2C3D4E5F6H8)",
+		"act-three (C3D4E5F6G7H8)",
+		"",
+	}, "\n")
+
+	got := buf.String()
+	if got != want {
+		t.Errorf("renderTreeText with multiple roots:\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
+// TestListCmd_ThreeRootsExactFormat verifies the exact text output when three
+// root-level nodes each have children. Each root must appear at the top level
+// without tree branch connectors.
+func TestListCmd_ThreeRootsExactFormat(t *testing.T) {
+	runner := &mockListRunner{result: threeRootOutline()}
+	cmd, buf := newTestListCmd(runner)
+
+	err := cmd.Execute()
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := strings.Join([]string{
+		"act-one (A1B2C3D4E5F6)",
+		"├── scene-1 (A1B2C3D4E5G7)",
+		"└── scene-2 (A1B2C3D4E5H8)",
+		"act-two (B2C3D4E5F6G7)",
+		"└── scene-3 (B2C3D4E5F6H8)",
+		"act-three (C3D4E5F6G7H8)",
+		"",
+	}, "\n")
+
+	got := buf.String()
+	if got != want {
+		t.Errorf("tree output mismatch.\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
+// TestListCmd_MultipleRootsDepthOneExactFormat verifies that --depth=1 with
+// multiple root nodes renders each root at the top level without any branch
+// characters — roots must not be shown as children of the first root.
+func TestListCmd_MultipleRootsDepthOneExactFormat(t *testing.T) {
+	runner := &mockListRunner{result: threeRootOutline()}
+	cmd, buf := newTestListCmd(runner, "--depth", "1")
+
+	err := cmd.Execute()
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := strings.Join([]string{
+		"act-one (A1B2C3D4E5F6)",
+		"act-two (B2C3D4E5F6G7)",
+		"act-three (C3D4E5F6G7H8)",
+		"",
+	}, "\n")
+
+	got := buf.String()
+	if got != want {
+		t.Errorf("tree output with --depth=1 mismatch.\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
