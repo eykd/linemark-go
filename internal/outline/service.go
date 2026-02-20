@@ -30,6 +30,9 @@ var ErrCycleDetected = errors.New("cycle detected")
 // ErrTypeAlreadyExists is returned when adding a type that already exists on a node.
 var ErrTypeAlreadyExists = errors.New("type already exists")
 
+// ErrEmptyTitle is returned when an empty or whitespace-only title is provided.
+var ErrEmptyTitle = errors.New("title must not be empty")
+
 // Slugifier converts a title string to a URL-friendly slug.
 type Slugifier interface {
 	Slug(s string) string
@@ -1183,6 +1186,9 @@ func lastSegmentNum(mp string) int {
 
 // Add creates a new node in the outline, acquiring an advisory lock first.
 func (s *OutlineService) Add(ctx context.Context, title, parentMP string, opts ...AddOption) (*AddResult, error) {
+	if strings.TrimSpace(title) == "" {
+		return nil, ErrEmptyTitle
+	}
 	if err := s.locker.TryLock(ctx); err != nil {
 		return nil, err
 	}

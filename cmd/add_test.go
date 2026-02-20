@@ -680,6 +680,20 @@ func TestAddCmd_BeforeAfterMutuallyExclusive(t *testing.T) {
 	}
 }
 
+func TestAddCmd_RejectsEmptyTitle(t *testing.T) {
+	runner := &mockAddRunner{result: chapterOneResult()}
+	cmd, _ := newTestAddCmd(runner, "")
+
+	err := cmd.Execute()
+
+	if err == nil {
+		t.Fatal("expected error for empty title")
+	}
+	if runner.called {
+		t.Error("runner should not be called for empty title")
+	}
+}
+
 func TestAddCmd_PlacementFlagRejectsInvalidSelector(t *testing.T) {
 	tests := []struct {
 		name string
