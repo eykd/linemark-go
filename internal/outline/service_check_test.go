@@ -213,6 +213,103 @@ func TestOutlineService_Check_DetectsSlugDrift(t *testing.T) {
 	}
 }
 
+func TestOutlineService_Check_DetectsMalformedFrontmatter(t *testing.T) {
+	tests := []struct {
+		name          string
+		files         []string
+		contents      map[string]string
+		wantMalformed bool
+		wantPath      string
+		wantSeverity  domain.FindingSeverity
+	}{
+		{
+			name: "detects malformed YAML in draft frontmatter",
+			files: []string{
+				"100_SID001AABB_draft_chapter-one.md",
+				"100_SID001AABB_notes.md",
+			},
+			contents: map[string]string{
+				"100_SID001AABB_draft_chapter-one.md": "---\ntitle: [unclosed\n---\n",
+			},
+			wantMalformed: true,
+			wantPath:      "100_SID001AABB_draft_chapter-one.md",
+			wantSeverity:  domain.SeverityError,
+		},
+		{
+			name: "no finding for valid frontmatter",
+			files: []string{
+				"100_SID001AABB_draft_chapter-one.md",
+				"100_SID001AABB_notes.md",
+			},
+			contents: map[string]string{
+				"100_SID001AABB_draft_chapter-one.md": "---\ntitle: Chapter One\n---\n",
+			},
+			wantMalformed: false,
+		},
+		{
+			name: "no finding when content reader is nil",
+			files: []string{
+				"100_SID001AABB_draft_chapter-one.md",
+				"100_SID001AABB_notes.md",
+			},
+			contents:      nil,
+			wantMalformed: false,
+		},
+		{
+			name: "skips non-draft documents",
+			files: []string{
+				"100_SID001AABB_draft_chapter-one.md",
+				"100_SID001AABB_notes.md",
+			},
+			contents: map[string]string{
+				"100_SID001AABB_draft_chapter-one.md": "---\ntitle: Chapter One\n---\n",
+				"100_SID001AABB_notes.md":             "---\ntitle: [unclosed\n---\n",
+			},
+			wantMalformed: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := &fakeDirectoryReader{files: tt.files}
+			svc := NewOutlineService(reader, nil, &mockLocker{}, nil)
+
+			if tt.contents != nil {
+				svc.contentReader = &fakeContentReader{contents: tt.contents}
+			}
+
+			result, err := svc.Check(context.Background())
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			var malformedFindings []domain.Finding
+			for _, f := range result.Findings {
+				if f.Type == domain.FindingMalformedFrontmatter {
+					malformedFindings = append(malformedFindings, f)
+				}
+			}
+
+			if tt.wantMalformed && len(malformedFindings) == 0 {
+				t.Fatalf("expected malformed_frontmatter finding, got none; all findings: %v", result.Findings)
+			}
+			if !tt.wantMalformed && len(malformedFindings) > 0 {
+				t.Fatalf("expected no malformed_frontmatter findings, got: %v", malformedFindings)
+			}
+
+			if tt.wantMalformed {
+				f := malformedFindings[0]
+				if f.Path != tt.wantPath {
+					t.Errorf("finding.Path = %q, want %q", f.Path, tt.wantPath)
+				}
+				if f.Severity != tt.wantSeverity {
+					t.Errorf("finding.Severity = %q, want %q", f.Severity, tt.wantSeverity)
+				}
+			}
+		})
+	}
+}
+
 func TestOutlineService_Check_FindingSeverities(t *testing.T) {
 	tests := []struct {
 		name         string

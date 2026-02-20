@@ -344,6 +344,7 @@ func (s *OutlineService) Check(ctx context.Context) (*CheckResult, error) {
 	findings = append(findings, buildFindings...)
 	findings = append(findings, findMissingDocTypeFindings(outline.Nodes)...)
 	findings = append(findings, s.findSlugDriftFindingsImpl(ctx, outline.Nodes)...)
+	findings = append(findings, s.findMalformedFrontmatterFindingsImpl(ctx, parsed)...)
 
 	return &CheckResult{Findings: findings}, nil
 }
@@ -875,6 +876,33 @@ func (s *OutlineService) findSlugDriftFindingsImpl(ctx context.Context, nodes []
 			Message:  fmt.Sprintf("slug drift: %s (expected %s)", d.filename, d.expectedSlug),
 			Path:     d.filename,
 		})
+	}
+	return findings
+}
+
+// findMalformedFrontmatterFindingsImpl checks draft documents for malformed YAML frontmatter.
+func (s *OutlineService) findMalformedFrontmatterFindingsImpl(ctx context.Context, parsed []domain.ParsedFile) []domain.Finding {
+	if s.contentReader == nil {
+		return nil
+	}
+	var findings []domain.Finding
+	for _, pf := range parsed {
+		if pf.DocType != domain.DocTypeDraft {
+			continue
+		}
+		filename := reconstructFilename(pf)
+		content, err := s.contentReader.ReadFile(ctx, filename)
+		if err != nil {
+			continue
+		}
+		if _, err := s.fmHandler.GetTitle(content); err != nil {
+			findings = append(findings, domain.Finding{
+				Type:     domain.FindingMalformedFrontmatter,
+				Severity: domain.SeverityError,
+				Message:  fmt.Sprintf("malformed frontmatter: %s", filename),
+				Path:     filename,
+			})
+		}
 	}
 	return findings
 }
