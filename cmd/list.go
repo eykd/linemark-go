@@ -135,22 +135,34 @@ func extractDocTypes(docs []domain.Document) []string {
 }
 
 // renderTreeText writes the tree display with box-drawing characters.
-// Multiple roots are merged into a single visual tree: the first root
-// becomes the tree header and subsequent roots appear as siblings of
-// the first root's children.
+// When exactly one root has children, subsequent roots are merged as siblings
+// of that root's children into a single connected tree. When multiple roots
+// have children (or none do), each root is rendered independently at the top level.
 func renderTreeText(w io.Writer, roots []*treeNode) {
 	if len(roots) == 0 {
 		return
 	}
 
-	first := roots[0]
-	fmt.Fprintf(w, "%s (%s)\n", first.Title, first.SID)
+	rootsWithChildren := 0
+	for _, r := range roots {
+		if len(r.Children) > 0 {
+			rootsWithChildren++
+		}
+	}
 
-	allChildren := make([]*treeNode, 0, len(first.Children)+len(roots)-1)
-	allChildren = append(allChildren, first.Children...)
-	allChildren = append(allChildren, roots[1:]...)
-
-	renderChildren(w, allChildren, "")
+	if len(roots) > 1 && rootsWithChildren == 1 {
+		first := roots[0]
+		fmt.Fprintf(w, "%s (%s)\n", first.Title, first.SID)
+		allChildren := make([]*treeNode, 0, len(first.Children)+len(roots)-1)
+		allChildren = append(allChildren, first.Children...)
+		allChildren = append(allChildren, roots[1:]...)
+		renderChildren(w, allChildren, "")
+	} else {
+		for _, root := range roots {
+			fmt.Fprintf(w, "%s (%s)\n", root.Title, root.SID)
+			renderChildren(w, root.Children, "")
+		}
+	}
 }
 
 // renderChildren recursively renders child nodes with tree-drawing prefixes.
