@@ -165,9 +165,31 @@ type OutlineService struct {
 	fmHandler     FrontmatterHandler
 }
 
+// Option configures an OutlineService during construction.
+type Option func(*OutlineService)
+
+// WithDeleter sets the FileDeleter on the service.
+func WithDeleter(d FileDeleter) Option { return func(s *OutlineService) { s.deleter = d } }
+
+// WithRenamer sets the FileRenamer on the service.
+func WithRenamer(r FileRenamer) Option { return func(s *OutlineService) { s.renamer = r } }
+
+// WithContentReader sets the ContentReader on the service.
+func WithContentReader(r ContentReader) Option {
+	return func(s *OutlineService) { s.contentReader = r }
+}
+
+// WithSlugifier sets the Slugifier on the service.
+func WithSlugifier(sl Slugifier) Option { return func(s *OutlineService) { s.slugifier = sl } }
+
+// WithFrontmatterHandler sets the FrontmatterHandler on the service.
+func WithFrontmatterHandler(fh FrontmatterHandler) Option {
+	return func(s *OutlineService) { s.fmHandler = fh }
+}
+
 // NewOutlineService creates an OutlineService with the given dependencies.
-func NewOutlineService(reader DirectoryReader, writer FileWriter, locker Locker, reserver SIDReserver) *OutlineService {
-	return &OutlineService{
+func NewOutlineService(reader DirectoryReader, writer FileWriter, locker Locker, reserver SIDReserver, opts ...Option) *OutlineService {
+	svc := &OutlineService{
 		reader:    reader,
 		writer:    writer,
 		locker:    locker,
@@ -176,6 +198,10 @@ func NewOutlineService(reader DirectoryReader, writer FileWriter, locker Locker,
 		slugifier: defaultSlugifier,
 		fmHandler: defaultFMHandler,
 	}
+	for _, o := range opts {
+		o(svc)
+	}
+	return svc
 }
 
 // AddType adds a document type to a node, acquiring an advisory lock first.
@@ -994,8 +1020,29 @@ func rollbackRenames(ctx context.Context, renamer FileRenamer, completed [][2]st
 	return errors.Join(errs...)
 }
 
+// AddOption configures the Add method's positioning behavior.
+type AddOption func(*addConfig)
+
+type addConfig struct {
+	before string
+	after  string
+}
+
+// AddBefore positions the new node before the sibling with the given MP.
+func AddBefore(mp string) AddOption { return func(c *addConfig) { c.before = mp } }
+
+// AddAfter positions the new node after the sibling with the given MP.
+func AddAfter(mp string) AddOption { return func(c *addConfig) { c.after = mp } }
+
+// lastSegmentNum extracts the last numeric segment from an MP string.
+func lastSegmentNum(mp string) int {
+	parts := strings.Split(mp, "-")
+	n, _ := strconv.Atoi(parts[len(parts)-1])
+	return n
+}
+
 // Add creates a new node in the outline, acquiring an advisory lock first.
-func (s *OutlineService) Add(ctx context.Context, title, parentMP string) (*AddResult, error) {
+func (s *OutlineService) Add(ctx context.Context, title, parentMP string, opts ...AddOption) (*AddResult, error) {
 	if err := s.locker.TryLock(ctx); err != nil {
 		return nil, err
 	}
@@ -1011,9 +1058,24 @@ func (s *OutlineService) Add(ctx context.Context, title, parentMP string) (*AddR
 		return nil, err
 	}
 
+	var cfg addConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+
 	occupied := collectChildNumbers(files, parentMP)
 
-	nextNum, err := domain.NextSiblingNumber(occupied)
+	var nextNum int
+	switch {
+	case cfg.before != "":
+		beforeNum := lastSegmentNum(cfg.before)
+		nextNum, err = domain.SiblingNumberBefore(occupied, beforeNum)
+	case cfg.after != "":
+		afterNum := lastSegmentNum(cfg.after)
+		nextNum, err = domain.SiblingNumberAfter(occupied, afterNum)
+	default:
+		nextNum, err = domain.NextSiblingNumber(occupied)
+	}
 	if err != nil {
 		return nil, err
 	}

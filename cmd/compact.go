@@ -32,6 +32,9 @@ func NewCompactCmd(runner CompactRunner) *cobra.Command {
 		SilenceUsage: true,
 		Args:         cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if runner == nil {
+				return ErrNotInProject
+			}
 			var selector string
 			if len(args) > 0 {
 				selector = args[0]

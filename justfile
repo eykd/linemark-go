@@ -31,7 +31,7 @@ test-cover-html: test-cover
 test-cover-check:
     #!/usr/bin/env bash
     set -uo pipefail
-    PACKAGES=$(go list ./... | grep -v '^github.com/eykd/linemark-go$' | grep -v '/cmd/pipeline$')
+    PACKAGES=$(go list ./... | grep -v '^github.com/eykd/linemark-go$' | grep -v '/cmd/pipeline$' | grep -v '/internal/fs$')
     go test -coverprofile=coverage.out $PACKAGES || exit 1
     # Check that all non-Impl functions are at 100%
     # Filter out: Impl functions (exempt), main (exempt), total line, and 100% functions

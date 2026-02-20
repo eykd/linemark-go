@@ -3,7 +3,12 @@ package cmd
 
 import (
 	"context"
+	"crypto/rand"
+	"path/filepath"
 
+	"github.com/eykd/linemark-go/internal/fs"
+	"github.com/eykd/linemark-go/internal/lock"
+	"github.com/eykd/linemark-go/internal/outline"
 	"github.com/spf13/cobra"
 )
 
@@ -19,16 +24,7 @@ var jsonFlag bool
 var dryRun bool
 
 func init() {
-	rootCmd = NewRootCmd()
-	rootCmd.AddCommand(NewAddCmd(nil))
-	rootCmd.AddCommand(NewCheckCmd(nil))
-	rootCmd.AddCommand(NewDoctorCmd(nil))
-	rootCmd.AddCommand(NewTypesCmd(nil))
-	rootCmd.AddCommand(NewCompactCmd(nil))
-	rootCmd.AddCommand(NewListCmd(nil))
-	rootCmd.AddCommand(NewDeleteCmd(nil))
-	rootCmd.AddCommand(NewMoveCmd(nil))
-	rootCmd.AddCommand(NewRenameCmd(nil))
+	rootCmd = BuildCommandTree(nil)
 }
 
 // GetVerbose returns the current verbose flag state.
@@ -66,6 +62,73 @@ func NewRootCmd() *cobra.Command {
 	return cmd
 }
 
+// BuildCommandTree creates a complete root command with all subcommands wired
+// to the given service. If svc is nil, all runners will be nil (nil guards in
+// each command will return ErrNotInProject).
+func BuildCommandTree(svc *outline.OutlineService) *cobra.Command {
+	root := NewRootCmd()
+
+	var aa AddRunner
+	var ca CheckRunner
+	var ra RepairRunner
+	var la ListRunner
+	var da DeleteRunner
+	var ma MoveRunner
+	var rna RenameRunner
+	var cpa CompactRunner
+	var ta TypesService
+
+	if svc != nil {
+		aa = &addAdapter{svc: svc}
+		ca = &checkAdapter{svc: svc}
+		ra = &repairAdapter{svc: svc}
+		la = &listAdapter{svc: svc}
+		da = &deleteAdapter{svc: svc}
+		ma = &moveAdapter{svc: svc}
+		rna = &renameAdapter{svc: svc}
+		cpa = &compactAdapter{svc: svc}
+		ta = &typesAdapter{svc: svc}
+	}
+
+	root.AddCommand(NewAddCmd(aa))
+	root.AddCommand(NewCheckCmd(ca))
+	root.AddCommand(NewDoctorCmd(ca, ra))
+	root.AddCommand(NewTypesCmd(ta))
+	root.AddCommand(NewCompactCmd(cpa))
+	root.AddCommand(NewListCmd(la))
+	root.AddCommand(NewDeleteCmd(da))
+	root.AddCommand(NewMoveCmd(ma))
+	root.AddCommand(NewRenameCmd(rna))
+
+	return root
+}
+
+// wireFromCwdImpl detects the project root and wires the OutlineService.
+func wireFromCwdImpl() (*outline.OutlineService, error) {
+	projectRoot, err := fs.FindProjectRootImpl()
+	if err != nil {
+		return nil, err
+	}
+
+	reader := &fs.OSReader{Root: projectRoot}
+	writer := &fs.OSWriter{Root: projectRoot}
+	deleter := &fs.OSDeleter{Root: projectRoot}
+	renamer := &fs.OSRenamer{Root: projectRoot}
+	contentReader := &fs.OSContentReader{Root: projectRoot}
+	reserver := &fs.SIDReserver{Rand: rand.Reader}
+	locker := lock.NewFromPath(filepath.Join(projectRoot, lock.DefaultPath))
+
+	svc := outline.NewOutlineService(reader, writer, locker, reserver,
+		outline.WithDeleter(deleter),
+		outline.WithRenamer(renamer),
+		outline.WithContentReader(contentReader),
+		outline.WithSlugifier(fs.SlugAdapter{}),
+		outline.WithFrontmatterHandler(fs.FMAdapter{}),
+	)
+
+	return svc, nil
+}
+
 // Execute runs the root command and returns any error.
 // Deprecated: Use ExecuteContext instead for proper signal handling.
 func Execute() error {
@@ -75,5 +138,7 @@ func Execute() error {
 // ExecuteContext runs the root command with the given context.
 // This enables graceful shutdown via context cancellation (e.g., on SIGINT).
 func ExecuteContext(ctx context.Context) error {
-	return rootCmd.ExecuteContext(ctx)
+	svc, _ := wireFromCwdImpl()
+	root := BuildCommandTree(svc)
+	return root.ExecuteContext(ctx)
 }

@@ -23,7 +23,13 @@ func NewDoctorCmd(runner CheckRunner, repairers ...RepairRunner) *cobra.Command 
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if applyFlag {
+				if repairer == nil {
+					return ErrNotInProject
+				}
 				return runRepairAndReport(cmd, repairer, jsonOutput || GetJSON())
+			}
+			if runner == nil {
+				return ErrNotInProject
 			}
 			return runCheckAndReport(cmd, runner, jsonOutput || GetJSON())
 		},

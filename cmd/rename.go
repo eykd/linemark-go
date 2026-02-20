@@ -38,6 +38,9 @@ func NewRenameCmd(runner RenameRunner) *cobra.Command {
 		Args:         cobra.ExactArgs(2),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if runner == nil {
+				return ErrNotInProject
+			}
 			selector := args[0]
 			if _, err := domain.ParseSelector(selector); err != nil {
 				return fmt.Errorf("invalid selector %q: %w", selector, err)

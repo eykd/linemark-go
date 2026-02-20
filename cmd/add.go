@@ -50,6 +50,9 @@ func NewAddCmd(runner AddRunner) *cobra.Command {
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if runner == nil {
+				return ErrNotInProject
+			}
 			if childOf != "" && siblingOf != "" {
 				return fmt.Errorf("--child-of and --sibling-of are mutually exclusive")
 			}

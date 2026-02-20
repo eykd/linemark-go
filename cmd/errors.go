@@ -8,6 +8,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// ErrNotInProject is returned when a command is run outside a linemark project.
+var ErrNotInProject = errors.New("not in a linemark project (no .linemark/ directory found)")
+
 // ContextError adds operation and path context to an underlying error.
 type ContextError struct {
 	Op   string

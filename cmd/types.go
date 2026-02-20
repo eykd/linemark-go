@@ -57,6 +57,9 @@ func newTypesListCmd(svc TypesService) *cobra.Command {
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if svc == nil {
+				return ErrNotInProject
+			}
 			result, err := svc.ListTypes(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -87,6 +90,9 @@ func newTypesAddCmd(svc TypesService) *cobra.Command {
 		Args:         cobra.ExactArgs(2),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if svc == nil {
+				return ErrNotInProject
+			}
 			isDryRun := GetDryRun()
 			result, err := svc.AddType(cmd.Context(), args[0], args[1], !isDryRun)
 			if err != nil {
@@ -120,6 +126,9 @@ func newTypesRemoveCmd(svc TypesService) *cobra.Command {
 		Args:         cobra.ExactArgs(2),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if svc == nil {
+				return ErrNotInProject
+			}
 			isDryRun := GetDryRun()
 			result, err := svc.RemoveType(cmd.Context(), args[0], args[1], !isDryRun)
 			if err != nil {

@@ -45,6 +45,9 @@ func NewListCmd(runner ListRunner) *cobra.Command {
 		Short:        "Display the project outline as a tree",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if runner == nil {
+				return ErrNotInProject
+			}
 			result, err := runner.List(cmd.Context())
 			if err != nil {
 				return err

@@ -28,6 +28,7 @@ var packageLayer = map[string]string{
 	"internal/lock":        layerInfrastructure,
 	"internal/slug":        layerInfrastructure,
 	"internal/sid":         layerInfrastructure,
+	"internal/fs":          layerInfrastructure,
 	"cmd":                  layerPresentation,
 }
 

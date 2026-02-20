@@ -32,6 +32,9 @@ func NewMoveCmd(runner MoveRunner) *cobra.Command {
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if runner == nil {
+				return ErrNotInProject
+			}
 			if before != "" && after != "" {
 				return fmt.Errorf("--before and --after are mutually exclusive")
 			}

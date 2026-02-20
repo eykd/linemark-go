@@ -45,6 +45,9 @@ func NewDeleteCmd(runner DeleteRunner, confirmers ...Confirmer) *cobra.Command {
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if runner == nil {
+				return ErrNotInProject
+			}
 			if recursive && promote {
 				return fmt.Errorf("--recursive and --promote are mutually exclusive")
 			}
