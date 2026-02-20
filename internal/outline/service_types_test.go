@@ -220,3 +220,66 @@ func TestOutlineService_RemoveType_NodeNotFound(t *testing.T) {
 		t.Errorf("expected ErrNodeNotFound, got %v", err)
 	}
 }
+
+func TestOutlineService_ListTypes_BySID(t *testing.T) {
+	files := []string{
+		"100_SID001AABB_draft_hello.md",
+		"100_SID001AABB_notes.md",
+	}
+	reader := &fakeDirectoryReader{files: files}
+	svc := NewOutlineService(reader, nil, &mockLocker{}, nil)
+
+	result, err := svc.ListTypes(context.Background(), "SID001AABB")
+
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if result.NodeMP != "100" {
+		t.Errorf("NodeMP = %q, want %q", result.NodeMP, "100")
+	}
+	if result.NodeSID != "SID001AABB" {
+		t.Errorf("NodeSID = %q, want %q", result.NodeSID, "SID001AABB")
+	}
+}
+
+func TestOutlineService_AddType_BySID(t *testing.T) {
+	files := []string{
+		"100_SID001AABB_draft_hello.md",
+		"100_SID001AABB_notes.md",
+	}
+	reader := &fakeDirectoryReader{files: files}
+	writer := &fakeFileWriter{}
+	svc := NewOutlineService(reader, writer, &mockLocker{}, nil)
+
+	result, err := svc.AddType(context.Background(), "characters", "SID001AABB")
+
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	wantFilename := "100_SID001AABB_characters.md"
+	if result.Filename != wantFilename {
+		t.Errorf("Filename = %q, want %q", result.Filename, wantFilename)
+	}
+}
+
+func TestOutlineService_RemoveType_BySID(t *testing.T) {
+	files := []string{
+		"100_SID001AABB_draft_hello.md",
+		"100_SID001AABB_notes.md",
+		"100_SID001AABB_characters.md",
+	}
+	reader := &fakeDirectoryReader{files: files}
+	deleter := &fakeFileDeleter{}
+	svc := NewOutlineService(reader, nil, &mockLocker{}, nil)
+	svc.deleter = deleter
+
+	result, err := svc.RemoveType(context.Background(), "characters", "SID001AABB")
+
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	wantFilename := "100_SID001AABB_characters.md"
+	if result.Filename != wantFilename {
+		t.Errorf("Filename = %q, want %q", result.Filename, wantFilename)
+	}
+}

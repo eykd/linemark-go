@@ -241,7 +241,7 @@ func (s *OutlineService) addTypeImpl(ctx context.Context, docType, selector stri
 		return nil, err
 	}
 
-	nodeMP, nodeSID, err := findNodeMP(parsed, selector)
+	nodeMP, nodeSID, err := findNodeBySelector(parsed, selector)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +283,7 @@ func (s *OutlineService) removeTypeImpl(ctx context.Context, docType, selector s
 		return nil, err
 	}
 
-	nodeMP, nodeSID, err := findNodeMP(parsed, selector)
+	nodeMP, nodeSID, err := findNodeBySelector(parsed, selector)
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +316,7 @@ func (s *OutlineService) listTypesImpl(ctx context.Context, selector string) (*L
 		return nil, err
 	}
 
-	nodeMP, nodeSID, err := findNodeMP(parsed, selector)
+	nodeMP, nodeSID, err := findNodeBySelector(parsed, selector)
 	if err != nil {
 		return nil, err
 	}
@@ -741,7 +741,7 @@ func (s *OutlineService) renameImpl(ctx context.Context, selector, newTitle stri
 		return nil, err
 	}
 
-	nodeMP, nodeSID, err := findNodeMP(parsed, selector)
+	nodeMP, nodeSID, err := findNodeBySelector(parsed, selector)
 	if err != nil {
 		return nil, err
 	}
@@ -808,9 +808,9 @@ func (s *OutlineService) renameImpl(ctx context.Context, selector, newTitle stri
 	return result, nil
 }
 
-// findNodeMP finds the MP and SID of the first node matching the given selector string.
+// findNodeBySelector finds the MP and SID of the first node matching the given selector string.
 // The selector may be either a materialized path (e.g. "100") or a stable ID (e.g. "SID001AABB").
-func findNodeMP(parsed []domain.ParsedFile, selector string) (string, string, error) {
+func findNodeBySelector(parsed []domain.ParsedFile, selector string) (string, string, error) {
 	for _, pf := range parsed {
 		if pf.MP == selector || pf.SID == selector {
 			return pf.MP, pf.SID, nil

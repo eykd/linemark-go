@@ -74,6 +74,24 @@ func TestOutlineService_Rename(t *testing.T) {
 			},
 		},
 		{
+			name: "renames draft file by SID selector",
+			files: []string{
+				"100_SID001AABB_draft_old-title.md",
+				"100_SID001AABB_notes.md",
+			},
+			contents: map[string]string{
+				"100_SID001AABB_draft_old-title.md": "---\ntitle: Old Title\n---\n",
+			},
+			selector:     "SID001AABB",
+			newTitle:     "New Title",
+			apply:        true,
+			wantOldTitle: "Old Title",
+			wantNewTitle: "New Title",
+			wantRenames: map[string]string{
+				"100_SID001AABB_draft_old-title.md": "100_SID001AABB_draft_new-title.md",
+			},
+		},
+		{
 			name:      "returns error when node not found",
 			files:     []string{},
 			selector:  "999",
