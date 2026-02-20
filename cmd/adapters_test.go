@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/eykd/linemark-go/internal/domain"
@@ -384,6 +385,50 @@ func TestCompactAdapter_ConvertsResult(t *testing.T) {
 	}
 	if result.FilesAffected != 1 {
 		t.Errorf("files affected = %d, want 1", result.FilesAffected)
+	}
+}
+
+func TestCompactAdapter_Warning(t *testing.T) {
+	makeRenames := func(n int) map[string]string {
+		renames := make(map[string]string, n)
+		for i := range n {
+			old := fmt.Sprintf("old-%03d.md", i)
+			renames[old] = fmt.Sprintf("new-%03d.md", i)
+		}
+		return renames
+	}
+
+	tests := []struct {
+		name        string
+		renameCount int
+		wantWarning bool
+	}{
+		{"50 files no warning", 50, false},
+		{"51 files sets warning", 51, true},
+		{"100 files sets warning", 100, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stub := &stubOutlineService{
+				compactResult: &outline.CompactResult{
+					Renames: makeRenames(tt.renameCount),
+				},
+			}
+			adapter := &compactAdapter{svc: stub}
+
+			result, err := adapter.Compact(context.Background(), "", false)
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantWarning && result.Warning == nil {
+				t.Error("expected warning to be set, got nil")
+			}
+			if !tt.wantWarning && result.Warning != nil {
+				t.Errorf("expected no warning, got %q", *result.Warning)
+			}
+		})
 	}
 }
 
