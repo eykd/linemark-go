@@ -21,6 +21,7 @@ const (
 	FindingMissingDocType       FindingType = "missing_doc_type"
 	FindingMalformedFrontmatter FindingType = "malformed_frontmatter"
 	FindingOrphanedReservation  FindingType = "orphaned_reservation"
+	FindingMissingReservation   FindingType = "missing_reservation"
 )
 
 // Document type constants identify the standard document types.

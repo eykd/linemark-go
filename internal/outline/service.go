@@ -82,6 +82,12 @@ type ContentReader interface {
 	ReadFile(ctx context.Context, filename string) (string, error)
 }
 
+// ReservationStore abstracts SID reservation marker persistence.
+type ReservationStore interface {
+	HasReservation(ctx context.Context, sid string) (bool, error)
+	CreateReservation(ctx context.Context, sid string) error
+}
+
 // OutlineBuilder abstracts building an Outline from parsed files.
 type OutlineBuilder interface {
 	BuildOutline(files []domain.ParsedFile) (domain.Outline, []domain.Finding, error)
@@ -153,16 +159,17 @@ type AddResult struct {
 
 // OutlineService coordinates outline mutations with advisory locking.
 type OutlineService struct {
-	reader        DirectoryReader
-	writer        FileWriter
-	locker        Locker
-	reserver      SIDReserver
-	builder       OutlineBuilder
-	deleter       FileDeleter
-	renamer       FileRenamer
-	contentReader ContentReader
-	slugifier     Slugifier
-	fmHandler     FrontmatterHandler
+	reader           DirectoryReader
+	writer           FileWriter
+	locker           Locker
+	reserver         SIDReserver
+	builder          OutlineBuilder
+	deleter          FileDeleter
+	renamer          FileRenamer
+	contentReader    ContentReader
+	slugifier        Slugifier
+	fmHandler        FrontmatterHandler
+	reservationStore ReservationStore
 }
 
 // Option configures an OutlineService during construction.
@@ -185,6 +192,11 @@ func WithSlugifier(sl Slugifier) Option { return func(s *OutlineService) { s.slu
 // WithFrontmatterHandler sets the FrontmatterHandler on the service.
 func WithFrontmatterHandler(fh FrontmatterHandler) Option {
 	return func(s *OutlineService) { s.fmHandler = fh }
+}
+
+// WithReservationStore sets the ReservationStore on the service.
+func WithReservationStore(rs ReservationStore) Option {
+	return func(s *OutlineService) { s.reservationStore = rs }
 }
 
 // NewOutlineService creates an OutlineService with the given dependencies.
@@ -346,6 +358,12 @@ func (s *OutlineService) Check(ctx context.Context) (*CheckResult, error) {
 	findings = append(findings, s.findSlugDriftFindingsImpl(ctx, outline.Nodes)...)
 	findings = append(findings, s.findMalformedFrontmatterFindingsImpl(ctx, parsed)...)
 
+	missingRes, err := s.findMissingReservationFindings(ctx, parsed)
+	if err != nil {
+		return nil, err
+	}
+	findings = append(findings, missingRes...)
+
 	return &CheckResult{Findings: findings}, nil
 }
 
@@ -391,6 +409,26 @@ func (s *OutlineService) repairImpl(ctx context.Context) (*RepairResult, error) 
 				Type: domain.FindingMissingDocType,
 				New:  filename,
 			})
+		}
+	}
+
+	// Repair missing reservation markers
+	if s.reservationStore != nil {
+		uniqueSIDs := uniqueSIDsFromParsed(parsed)
+		for _, sid := range uniqueSIDs {
+			has, err := s.reservationStore.HasReservation(ctx, sid)
+			if err != nil {
+				return nil, err
+			}
+			if !has {
+				if err := s.reservationStore.CreateReservation(ctx, sid); err != nil {
+					return nil, err
+				}
+				result.Repairs = append(result.Repairs, RepairAction{
+					Type: domain.FindingMissingReservation,
+					New:  sid,
+				})
+			}
 		}
 	}
 
@@ -907,6 +945,42 @@ func (s *OutlineService) findMalformedFrontmatterFindingsImpl(ctx context.Contex
 	return findings
 }
 
+// uniqueSIDsFromParsed returns the unique SIDs from a slice of parsed files in order of first appearance.
+func uniqueSIDsFromParsed(parsed []domain.ParsedFile) []string {
+	seen := map[string]bool{}
+	var sids []string
+	for _, pf := range parsed {
+		if !seen[pf.SID] {
+			seen[pf.SID] = true
+			sids = append(sids, pf.SID)
+		}
+	}
+	return sids
+}
+
+// findMissingReservationFindings checks for SIDs without reservation markers.
+func (s *OutlineService) findMissingReservationFindings(ctx context.Context, parsed []domain.ParsedFile) ([]domain.Finding, error) {
+	if s.reservationStore == nil {
+		return nil, nil
+	}
+	var findings []domain.Finding
+	for _, sid := range uniqueSIDsFromParsed(parsed) {
+		has, err := s.reservationStore.HasReservation(ctx, sid)
+		if err != nil {
+			return nil, err
+		}
+		if !has {
+			findings = append(findings, domain.Finding{
+				Type:     domain.FindingMissingReservation,
+				Severity: domain.SeverityWarning,
+				Message:  fmt.Sprintf("missing reservation marker for SID %s", sid),
+				Path:     sid,
+			})
+		}
+	}
+	return findings, nil
+}
+
 // readAndParse reads the project directory and parses valid filenames.
 func (s *OutlineService) readAndParse(ctx context.Context) ([]domain.ParsedFile, error) {
 	parsed, _, err := s.readAndParseWithFindings(ctx)
@@ -1122,6 +1196,12 @@ func (s *OutlineService) Add(ctx context.Context, title, parentMP string, opts .
 	sid, err := s.reserver.Reserve(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	if s.reservationStore != nil {
+		if err := s.reservationStore.CreateReservation(ctx, sid); err != nil {
+			return nil, err
+		}
 	}
 
 	var cfg addConfig
