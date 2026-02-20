@@ -145,6 +145,43 @@ func (FMAdapter) EncodeYAMLValue(s string) string { return frontmatter.EncodeYAM
 // Serialize combines frontmatter and body into a complete document.
 func (FMAdapter) Serialize(fm, body string) string { return frontmatter.Serialize(fm, body) }
 
+// OSReservationStore implements outline.ReservationStore using the filesystem.
+type OSReservationStore struct {
+	Root string
+}
+
+// HasReservationImpl checks whether a reservation marker exists for the given SID.
+func (s *OSReservationStore) HasReservationImpl(_ context.Context, sid string) (bool, error) {
+	path := filepath.Join(s.Root, ".linemark", "ids", sid)
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("checking reservation %s: %w", sid, err)
+}
+
+// HasReservation delegates to HasReservationImpl.
+func (s *OSReservationStore) HasReservation(ctx context.Context, sid string) (bool, error) {
+	return s.HasReservationImpl(ctx, sid)
+}
+
+// CreateReservationImpl creates a reservation marker file for the given SID.
+func (s *OSReservationStore) CreateReservationImpl(_ context.Context, sid string) error {
+	idsDir := filepath.Join(s.Root, ".linemark", "ids")
+	if err := os.MkdirAll(idsDir, 0o755); err != nil {
+		return fmt.Errorf("creating ids directory: %w", err)
+	}
+	return os.WriteFile(filepath.Join(idsDir, sid), nil, 0o644)
+}
+
+// CreateReservation delegates to CreateReservationImpl.
+func (s *OSReservationStore) CreateReservation(ctx context.Context, sid string) error {
+	return s.CreateReservationImpl(ctx, sid)
+}
+
 // FindProjectRootImpl walks up from the current working directory looking for a .linemark/ directory.
 func FindProjectRootImpl() (string, error) {
 	dir, err := os.Getwd()

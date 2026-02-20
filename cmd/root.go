@@ -121,12 +121,15 @@ func wireServiceFromRootImpl(projectRoot string) (*outline.OutlineService, error
 	reserver := &fs.SIDReserver{Rand: rand.Reader}
 	locker := lock.NewFromPath(filepath.Join(projectRoot, lock.DefaultPath))
 
+	reservationStore := &fs.OSReservationStore{Root: projectRoot}
+
 	svc := outline.NewOutlineService(reader, writer, locker, reserver,
 		outline.WithDeleter(deleter),
 		outline.WithRenamer(renamer),
 		outline.WithContentReader(contentReader),
 		outline.WithSlugifier(fs.SlugAdapter{}),
 		outline.WithFrontmatterHandler(fs.FMAdapter{}),
+		outline.WithReservationStore(reservationStore),
 	)
 
 	return svc, nil
