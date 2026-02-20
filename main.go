@@ -18,6 +18,6 @@ func main() {
 
 	if err := cmd.ExecuteContext(ctx); err != nil {
 		fmt.Fprint(os.Stderr, cmd.FormatError(err))
-		os.Exit(1)
+		os.Exit(cmd.ExitCodeFromError(err))
 	}
 }
