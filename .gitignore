@@ -33,6 +33,5 @@ lefthook-local.yml
 .ralph-review.json
 
 # Acceptance test pipeline (generated artifacts)
-generated-acceptance-tests/
 acceptance-pipeline/ir/
 .ralph-acceptance.json
