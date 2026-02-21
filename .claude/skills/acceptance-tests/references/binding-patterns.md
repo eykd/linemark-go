@@ -2,21 +2,18 @@
 
 ## Architecture
 
-The acceptance pipeline generates ephemeral test stubs in `generated-acceptance-tests/`.
-These stubs are **deleted on every pipeline run** (`run-acceptance-tests.sh` starts with
-`rm -rf generated-acceptance-tests/`). They exist only as scaffolds — a checklist of
-what scenarios need real tests.
-
-Bound tests must live in a **persistent location** that survives pipeline runs.
-Place them alongside acceptance infrastructure or in a dedicated test package,
-not inside `generated-acceptance-tests/`.
+The acceptance pipeline generates test stubs in `generated-acceptance-tests/`.
+Edit generated files directly. The pipeline preserves functions that don't
+contain the unbound sentinel (`t.Fatal("acceptance test not yet bound")`).
 
 ### Stub → Bound Test Workflow
 
-1. Run `just acceptance-generate` to create stubs from specs
+1. Run `just acceptance-generate` to create stubs from specs (or let the pipeline run)
 2. Read the generated stub to see scenario structure and step comments
-3. Write the real test in a persistent location, implementing each step
-4. The real test replaces the stub — when it passes, the acceptance gate is met
+3. Edit the generated file directly: replace the `t.Fatal(...)` sentinel with real test code
+4. Add necessary imports (`"os"`, `"os/exec"`, `"path/filepath"`, `"strings"`)
+5. The pipeline preserves your bound implementations on subsequent runs
+6. Use `just acceptance-regen` to force-regenerate all stubs if needed (destroys bound code)
 
 ## CLI Execution Pattern
 

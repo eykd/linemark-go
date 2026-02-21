@@ -81,6 +81,9 @@ execute_atdd_cycle(task):
     # Check if acceptance tests already pass
     if acceptance tests PASS: close task, done
 
+    # BIND: write acceptance test implementations from spec
+    BIND: replace t.Fatal("...") stubs with real test code
+
     # Inner TDD loop (up to 15 cycles)
     for each inner cycle:
         RED:      write smallest failing unit test
@@ -95,9 +98,11 @@ execute_atdd_cycle(task):
 
 ### Key principles
 - Acceptance tests define DONE — not LLM judgment
+- BIND step writes test implementations before inner TDD starts
 - Each inner cycle makes the smallest possible change
 - Tasks without specs fall back to standard TDD (backward compatible)
 - Inner cycle limit is 15 (vs 5 for pure TDD) to allow incremental progress
+- The pipeline preserves bound test implementations across regeneration
 
 ## Spec Guardian
 

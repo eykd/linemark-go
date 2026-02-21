@@ -1,0 +1,70 @@
+;===============================================================
+; A healthy outline passes validation.
+;===============================================================
+GIVEN an outline with no structural problems.
+
+WHEN the author validates the outline.
+
+THEN the validation reports success.
+THEN the exit status indicates success.
+
+
+;===============================================================
+; Validation detects duplicate stable identifiers.
+;===============================================================
+GIVEN an outline where two nodes share the same stable identifier.
+
+WHEN the author validates the outline.
+
+THEN a finding reports the duplicate stable identifier.
+THEN the exit status indicates findings detected.
+
+
+;===============================================================
+; Validation detects slug drift.
+;===============================================================
+GIVEN a node whose filename slug does not match its canonical title.
+
+WHEN the author validates the outline.
+
+THEN a finding reports the slug drift with the affected file.
+
+
+;===============================================================
+; Validation detects missing required documents.
+;===============================================================
+GIVEN a node that is missing its notes document.
+
+WHEN the author validates the outline.
+
+THEN a finding reports the missing notes document.
+
+
+;===============================================================
+; Validation detects malformed title metadata.
+;===============================================================
+GIVEN a draft document with unparseable title metadata.
+
+WHEN the author validates the outline.
+
+THEN a finding reports the malformed metadata.
+
+
+;===============================================================
+; Validation never modifies files.
+;===============================================================
+GIVEN an outline with several findings.
+
+WHEN the author validates the outline.
+
+THEN no files are created, renamed, or deleted.
+
+
+;===============================================================
+; Validation supports structured output.
+;===============================================================
+GIVEN an outline with findings.
+
+WHEN the author validates requesting structured output.
+
+THEN each finding includes its category, severity, message, and affected file path.

@@ -1,0 +1,60 @@
+;===============================================================
+; Doctor fixes slug drift when applied.
+;===============================================================
+GIVEN a node whose filename slug does not match its canonical title.
+
+WHEN the author runs doctor with apply.
+
+THEN the files are renamed to match the canonical title.
+
+
+;===============================================================
+; Doctor creates missing notes files when applied.
+;===============================================================
+GIVEN a node that is missing its notes document.
+
+WHEN the author runs doctor with apply.
+
+THEN an empty notes file is created for the node.
+
+
+;===============================================================
+; Doctor creates missing identifier reservations when applied.
+;===============================================================
+GIVEN a node whose stable identifier has no reservation marker.
+
+WHEN the author runs doctor with apply.
+
+THEN the missing reservation marker is created.
+
+
+;===============================================================
+; Doctor reports but never auto-repairs duplicate identifiers.
+;===============================================================
+GIVEN two nodes share the same stable identifier.
+
+WHEN the author runs doctor with apply.
+
+THEN the duplicate identifier is reported.
+THEN no automatic repair is attempted for the duplicate.
+
+
+;===============================================================
+; Doctor without apply behaves as report-only.
+;===============================================================
+GIVEN an outline with repairable findings.
+
+WHEN the author runs doctor without apply.
+
+THEN findings are reported.
+THEN no files are modified.
+
+
+;===============================================================
+; Doctor is idempotent.
+;===============================================================
+GIVEN an outline with repairable findings.
+
+WHEN the author runs doctor with apply twice in succession.
+
+THEN the second run reports no findings and makes no changes.

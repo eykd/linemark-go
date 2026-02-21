@@ -50,6 +50,11 @@ Coverage exemptions (per `.claude/skills/go-tdd/references/coverage.md`):
 - `*Impl` functions that wrap external commands (exec.Command, os operations)
 - These are tested via integration tests, not unit tests
 - The coverage check filters out Impl functions from the calculation
+- **Build config consistency**: Coverage package exclusions are defined in both `lefthook.yml` (pre-commit) and `justfile` (test-cover-check). These must stay in sync — update both when adding package exclusions.
+
+### CLI Smoke Test
+
+After changes to `main.go`, `cmd/root.go`, or command wiring, run `just smoke` to verify errors are visible to users. This is also enforced in pre-commit.
 
 After cloning, install git hooks:
 ```bash
@@ -100,4 +105,7 @@ Pipeline CLI: `go run ./acceptance/cmd/pipeline -action=<parse|generate|run>`
 5. Tasks without specs fall back to standard TDD
 
 ## Active Technologies
-- Go 1.23 + Cobra (CLI framework)
+- Go 1.25 + Cobra (CLI framework)
+- gopkg.in/yaml.v3 (YAML frontmatter)
+- github.com/gofrs/flock (advisory file locking)
+- golang.org/x/text (Unicode normalization for slug generation)

@@ -76,6 +76,12 @@ func init() {
 }
 ```
 
+### SilenceErrors Contract
+
+When `SilenceErrors: true` is set, Cobra will NOT print errors. The caller of
+`Execute()`/`ExecuteContext()` MUST print errors to stderr. An architecture test
+(`TestMainPrintsErrorsWhenSilenceErrorsSet`) enforces this.
+
 ## Command Implementation
 
 Commands are thin: parse input → call service → format output.

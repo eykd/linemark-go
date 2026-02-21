@@ -1,0 +1,25 @@
+;===============================================================
+; Author creates the first node in a new outline.
+;===============================================================
+GIVEN an empty content directory.
+
+WHEN the author adds a node titled "My Novel".
+
+THEN two files are created in the content directory.
+THEN one file is a draft containing the title "My Novel".
+THEN the other file is an empty notes document.
+THEN the node is assigned a unique stable identifier.
+THEN the stable identifier is permanently reserved.
+THEN the filenames contain the hierarchy position, stable identifier, document type, and a slugified title.
+
+
+;===============================================================
+; Adding a node bootstraps the control directory.
+;===============================================================
+GIVEN a content directory with no control directory.
+
+WHEN the author adds a node titled "First Entry".
+
+THEN the control directory is created.
+THEN the stable identifier reservation is stored in the control directory.
+THEN the draft and notes files are created successfully.

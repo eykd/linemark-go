@@ -262,3 +262,39 @@ func NewPerson(id string) *Person {
 
 func (p *Person) ID() string { return p.id }
 ```
+
+## Split Dual-Purpose Parameter
+
+**When**: A single parameter is used for two logically distinct purposes (e.g., finding existing data AND computing new values). These purposes may align initially but diverge in recursive or iterative contexts.
+
+**Symptom**: A recursive function passes `oldX` to itself, but the caller's context has changed `X` to `newX`. The recursion uses `oldX` for one purpose but needs `newX` for the other.
+
+**Steps**:
+
+1. Identify the two roles the parameter serves
+2. Add a second parameter for the second role
+3. At the top-level call site, both parameters are the same value
+4. In recursive/iterative calls, they may diverge
+
+```go
+// Before: parentMP serves two purposes
+func compact(parsed []File, parentMP string) map[string]string {
+    for i, oldChild := range children {
+        newChild := buildPath(parentMP, nums[i])  // Uses parentMP as new prefix
+        // ...
+        compact(parsed, oldChild)  // Passes old path — but newChild is the correct new prefix
+    }
+}
+
+// After: Separate old (for matching) from new (for generating)
+func compact(parsed []File, oldParentMP, newParentMP string) map[string]string {
+    for i, oldChild := range children {
+        newChild := buildPath(newParentMP, nums[i])  // Correct new prefix
+        // ...
+        compact(parsed, oldChild, newChild)  // Both old and new propagated
+    }
+}
+
+// Top-level call: both are the same
+compact(parsed, selector, selector)
+```

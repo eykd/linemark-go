@@ -35,6 +35,10 @@ func assertContains(t *testing.T, s, substr string) {
 }
 ```
 
+### Package-Local Test Helpers
+
+When you need a `Must*` helper (e.g., `mustParseMP`), define it as an unexported function in the test file. Do NOT assume the source package exports one — verify with grep first. Each test package may define its own local helpers.
+
 ### Setup/Teardown
 
 ```go

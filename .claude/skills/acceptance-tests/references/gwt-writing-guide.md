@@ -132,5 +132,7 @@ Before committing a spec file, verify:
 5. **No implementation language** — no code identifiers, no infrastructure terms
 6. **Scenarios are independent** — each can run without the others
 7. **Outcomes are observable** — describe what the user sees, not internal state
+8. **Error preconditions covered** — If a command requires setup (e.g., project init), include a scenario for what happens without it
+9. **Bootstrap scenarios exist** — If a command can be the user's first interaction, spec the cold-start path
 
 Run `/spec-check` to automate leakage detection on committed specs.

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 
@@ -16,6 +17,7 @@ func main() {
 	defer cancel()
 
 	if err := cmd.ExecuteContext(ctx); err != nil {
-		os.Exit(1)
+		fmt.Fprint(os.Stderr, cmd.FormatError(err))
+		os.Exit(cmd.ExitCodeFromError(err))
 	}
 }

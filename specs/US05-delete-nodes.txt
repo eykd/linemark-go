@@ -1,0 +1,51 @@
+;===============================================================
+; Author deletes a leaf node.
+;===============================================================
+GIVEN an outline with a leaf node "Chapter 3".
+
+WHEN the author deletes "Chapter 3" with force.
+
+THEN all files belonging to "Chapter 3" are removed.
+THEN the stable identifier reservation is preserved.
+
+
+;===============================================================
+; Author deletes a subtree recursively.
+;===============================================================
+GIVEN "Part Two" has children "Chapter 4" and "Chapter 5".
+
+WHEN the author deletes "Part Two" recursively with force.
+
+THEN "Part Two" and all its descendants are removed.
+THEN all stable identifier reservations are preserved.
+
+
+;===============================================================
+; Author promotes children when deleting a parent.
+;===============================================================
+GIVEN "Part One" has children "Chapter 1" and "Chapter 2".
+
+WHEN the author deletes "Part One" with promotion and force.
+
+THEN "Part One" is removed.
+THEN "Chapter 1" and "Chapter 2" are promoted to the level where "Part One" was.
+
+
+;===============================================================
+; Deleting requires confirmation by default.
+;===============================================================
+GIVEN an outline with a node to delete.
+
+WHEN the author attempts to delete without forcing.
+
+THEN the tool requests confirmation before proceeding.
+
+
+;===============================================================
+; Stable identifiers are never reused after deletion.
+;===============================================================
+GIVEN a node was deleted and its stable identifier was "X".
+
+WHEN the author adds a new node.
+
+THEN the new node receives a different stable identifier, not "X".

@@ -1,0 +1,41 @@
+;===============================================================
+; Compact renumbers positions with even spacing.
+;===============================================================
+GIVEN an outline with uneven numbering gaps between siblings.
+
+WHEN the author compacts the outline with apply.
+
+THEN all sibling positions are renumbered with even spacing.
+THEN stable identifiers are unchanged.
+
+
+;===============================================================
+; Compact without apply is report-only.
+;===============================================================
+GIVEN an outline with numbering gaps.
+
+WHEN the author compacts without apply.
+
+THEN the planned renaming is displayed.
+THEN no files are actually renamed.
+
+
+;===============================================================
+; Compact warns when many files are affected.
+;===============================================================
+GIVEN an outline where compacting would affect more than 50 files.
+
+WHEN the author compacts the outline.
+
+THEN a warning is emitted about the number of affected files.
+
+
+;===============================================================
+; Compact preserves the outline hierarchy.
+;===============================================================
+GIVEN a three-level outline with parent, child, and grandchild nodes.
+
+WHEN the author compacts with apply.
+
+THEN all parent-child relationships are preserved.
+THEN only the numbering changes, not the hierarchy.

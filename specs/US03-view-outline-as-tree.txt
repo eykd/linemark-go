@@ -1,0 +1,42 @@
+;===============================================================
+; Author views the outline as an indented tree.
+;===============================================================
+GIVEN an outline with "Part One" containing "Chapter 1" and "Chapter 2".
+
+WHEN the author lists the outline.
+
+THEN a human-readable indented tree is displayed.
+THEN each node shows its title and stable identifier.
+THEN "Chapter 1" and "Chapter 2" are indented under "Part One".
+
+
+;===============================================================
+; Author limits tree display depth.
+;===============================================================
+GIVEN an outline with three levels: a part, a chapter, and a scene.
+
+WHEN the author lists the outline limited to depth 2.
+
+THEN the part and chapter are displayed.
+THEN the scene is not displayed.
+
+
+;===============================================================
+; Author filters nodes by document type.
+;===============================================================
+GIVEN an outline where some nodes have a "characters" document and others do not.
+
+WHEN the author lists nodes filtered to the "characters" type.
+
+THEN only nodes with a "characters" document are displayed.
+
+
+;===============================================================
+; Author requests structured output.
+;===============================================================
+GIVEN a populated outline with parent and child nodes.
+
+WHEN the author lists the outline requesting structured output.
+
+THEN the output is valid structured data with nested children.
+THEN each node includes its position, stable identifier, title, depth, and document types.

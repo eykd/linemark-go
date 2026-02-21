@@ -1,0 +1,30 @@
+;===============================================================
+; Author lists document types for a node.
+;===============================================================
+GIVEN a node with a draft and notes document.
+
+WHEN the author lists types for that node.
+
+THEN "draft" and "notes" are displayed.
+
+
+;===============================================================
+; Author adds a custom document type.
+;===============================================================
+GIVEN a node with draft and notes documents.
+
+WHEN the author adds a "characters" document type to the node.
+
+THEN the node has 3 document types: draft, notes, and characters.
+THEN a new empty file of type "characters" is created.
+
+
+;===============================================================
+; Author removes a custom document type.
+;===============================================================
+GIVEN a node with draft, notes, and "characters" documents.
+
+WHEN the author removes the "characters" document type.
+
+THEN the node has 2 document types: draft and notes.
+THEN the "characters" file is deleted.

@@ -1,0 +1,51 @@
+;===============================================================
+; Author adds a child node under an existing node.
+;===============================================================
+GIVEN an outline with a single root node titled "My Novel".
+
+WHEN the author adds a child node titled "Chapter 1" under "My Novel".
+
+THEN the outline contains 2 nodes.
+THEN "Chapter 1" appears as a child of "My Novel".
+THEN the child's position in the filename reflects the parent-child relationship.
+
+
+;===============================================================
+; Author adds a sibling node after an existing node.
+;===============================================================
+GIVEN an outline with a root node "Part One" that has a child "Chapter 1".
+
+WHEN the author adds a sibling of "Chapter 1" titled "Chapter 2".
+
+THEN the outline contains 3 nodes.
+THEN "Chapter 2" appears as a sibling immediately after "Chapter 1".
+
+
+;===============================================================
+; Author inserts a node between two siblings.
+;===============================================================
+GIVEN an outline with "Chapter 1" and "Chapter 3" as siblings.
+
+WHEN the author adds a node titled "Chapter 2" after "Chapter 1".
+
+THEN "Chapter 2" sorts between "Chapter 1" and "Chapter 3" in the outline.
+
+
+;===============================================================
+; Author places a node before a specific sibling.
+;===============================================================
+GIVEN an outline with "Chapter 2" and "Chapter 3" as siblings.
+
+WHEN the author adds a node titled "Chapter 1" before "Chapter 2".
+
+THEN "Chapter 1" appears before "Chapter 2" in the outline.
+
+
+;===============================================================
+; New children default to last position.
+;===============================================================
+GIVEN an outline with a root node that has children "Scene 1" and "Scene 2".
+
+WHEN the author adds a child titled "Scene 3" under the root node.
+
+THEN "Scene 3" appears after "Scene 2" in the outline.

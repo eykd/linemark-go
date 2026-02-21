@@ -1,0 +1,48 @@
+;===============================================================
+; Author selects a node by its position.
+;===============================================================
+GIVEN an outline with a node at position "001-200".
+
+WHEN the author references the node by "001-200".
+
+THEN the node at position "001-200" is selected.
+
+
+;===============================================================
+; Author selects a node by its stable identifier.
+;===============================================================
+GIVEN an outline with a node having a known stable identifier.
+
+WHEN the author references the node by its stable identifier.
+
+THEN the correct node is selected.
+
+
+;===============================================================
+; Ambiguous input defaults to position.
+;===============================================================
+GIVEN an input that could match either a position or a stable identifier.
+
+WHEN the input is resolved without an explicit prefix.
+
+THEN it is interpreted as a position.
+
+
+;===============================================================
+; Author uses explicit prefix for position.
+;===============================================================
+GIVEN an outline with a node.
+
+WHEN the author references a node with a position prefix.
+
+THEN the node is looked up by position regardless of other patterns.
+
+
+;===============================================================
+; Author uses explicit prefix for stable identifier.
+;===============================================================
+GIVEN an outline with a node.
+
+WHEN the author references a node with an identifier prefix.
+
+THEN the node is looked up by stable identifier regardless of other patterns.

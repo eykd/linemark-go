@@ -30,10 +30,12 @@ readonly STEP_RED="RED"
 readonly STEP_GREEN="GREEN"
 readonly STEP_REFACTOR="REFACTOR"
 readonly STEP_REVIEW="REVIEW"
+readonly STEP_BIND="BIND"
 readonly STEP_ACCEPTANCE="ACCEPTANCE"
 readonly REVIEW_OUTPUT_FILE=".ralph-review.json"
 readonly ACCEPTANCE_OUTPUT_FILE=".ralph-acceptance.json"
 readonly ATDD_MAX_INNER_CYCLES=15
+readonly BASELINE_FIX_MAX_ATTEMPTS=2  # max Claude attempts to fix failing baseline
 
 # Exit codes
 readonly EXIT_SUCCESS=0
@@ -523,15 +525,16 @@ find_epic_id() {
     local feature_name="$1"
     local epics_json
 
-    epics_json=$(npx bd list --type epic --status open --json 2>/dev/null) || {
+    epics_json=$(npx bd list --type feature --status open --json 2>/dev/null) || {
         echo "Error: Failed to query beads for epics" >&2
         return 1
     }
 
     # Find epic where title contains the feature name
+    # Normalize hyphens to spaces so "linemark-mvp" matches "Linemark MVP"
     local epic_id
     epic_id=$(echo "$epics_json" | jq -r --arg name "$feature_name" \
-        '.[] | select(.title | ascii_downcase | contains($name | ascii_downcase)) | .id' | head -n1)
+        '.[] | select(.title | ascii_downcase | gsub("-"; " ") | contains($name | ascii_downcase | gsub("-"; " "))) | .id' | head -n1)
 
     if [[ -z "$epic_id" ]]; then
         echo "Error: No epic found matching feature '$feature_name'" >&2
@@ -551,7 +554,7 @@ validate_epic_exists() {
     log DEBUG "Validating epic: $epic_id"
 
     # Query beads for this epic ID
-    epic_data=$(npx bd list --type epic --json 2>/dev/null | \
+    epic_data=$(npx bd list --type feature --json 2>/dev/null | \
         jq -r --arg id "$epic_id" '.[] | select(.id == $id)') || {
         log ERROR "Failed to query beads for epics"
         return 1
@@ -994,6 +997,50 @@ check_baseline_tests() {
     return 0
 }
 
+# Attempt to auto-fix failing baseline tests by invoking Claude.
+# Loops up to BASELINE_FIX_MAX_ATTEMPTS times.
+# Returns 0 if tests are fixed, 1 if still failing.
+attempt_baseline_fix() {
+    local attempt=0
+    local test_output exit_code prompt
+
+    log INFO "Attempting baseline auto-fix (max $BASELINE_FIX_MAX_ATTEMPTS attempts)"
+
+    while (( attempt < BASELINE_FIX_MAX_ATTEMPTS )); do
+        attempt=$((attempt + 1))
+        log INFO "Baseline fix attempt $attempt/$BASELINE_FIX_MAX_ATTEMPTS"
+
+        # Capture current failing output
+        test_output=$(go test ./... 2>&1) && exit_code=0 || exit_code=$?
+
+        if [[ "$exit_code" -eq 0 ]]; then
+            log INFO "Baseline tests now pass (fixed before invoking Claude)"
+            return 0
+        fi
+
+        # Generate fix prompt and invoke Claude
+        prompt=$(generate_baseline_fix_prompt "$test_output")
+        if ! invoke_claude_with_retry "$prompt"; then
+            log WARN "Baseline fix attempt $attempt: Claude invocation failed"
+            continue
+        fi
+
+        # Re-check tests after Claude's fix
+        test_output=$(go test ./... 2>&1) && exit_code=0 || exit_code=$?
+
+        if [[ "$exit_code" -eq 0 ]]; then
+            log INFO "Baseline tests fixed on attempt $attempt"
+            return 0
+        fi
+
+        log WARN "Baseline fix attempt $attempt: tests still failing"
+        log_block "Post-Fix Test Output (attempt $attempt)" "$test_output"
+    done
+
+    log ERROR "Baseline auto-fix exhausted $BASELINE_FIX_MAX_ATTEMPTS attempts"
+    return 1
+}
+
 # Ralph's spot-check gate between TDD steps.
 # RED: expects test failure (exit != 0)
 # GREEN/REFACTOR: expects test success (exit == 0)
@@ -1047,6 +1094,51 @@ check_for_changes() {
 ##############################################################################
 # TDD prompt generators
 ##############################################################################
+
+# Generate prompt to fix failing baseline tests.
+# Arguments: test_output (raw failing test output)
+generate_baseline_fix_prompt() {
+    local test_output="$1"
+    local go_tdd_skill commit_skill
+
+    go_tdd_skill=$(load_skill_content "go-tdd")
+    commit_skill=$(load_skill_content "commit")
+
+    cat <<PROMPT_EOF
+## Non-Interactive Mode
+You are running in ralph's automation loop (non-interactive).
+You CANNOT ask questions or wait for user input.
+
+## Mission: Fix Failing Tests
+
+The test suite is currently failing. Your ONLY job is to diagnose and fix
+whatever is causing the failures. Do NOT add new features or make unrelated
+changes — fix only what is needed to make \`go test ./...\` pass.
+
+### Failing Test Output
+\`\`\`
+$test_output
+\`\`\`
+
+### Rules
+1. Diagnose the root cause from the test output above
+2. Fix ONLY what is needed to make tests pass
+3. Do NOT add new features or refactor unrelated code
+4. Do NOT delete or skip tests — fix the code or fix the test expectations
+5. Run \`go test ./...\` to verify your fix before committing
+6. Commit the fix with a message like: "fix: repair failing baseline tests"
+7. If the fix involves stale imports, renamed functions, or unbound acceptance
+   test stubs, those are the most common causes — check for those first
+
+### Reference: Go TDD Skill
+<go-tdd-skill>
+$go_tdd_skill
+</go-tdd-skill>
+
+### Commit Reference
+$commit_skill
+PROMPT_EOF
+}
 
 # Generate RED step prompt: write failing test ONLY
 # Arguments: task_json, cycle_number, [remaining_items], [retry_context]
@@ -1398,18 +1490,118 @@ Incomplete:
 PROMPT_EOF
 }
 
+# Generate BIND step prompt: write acceptance test implementations from spec
+# Arguments: task_json, cycle_number, spec_file, [retry_context]
+generate_bind_prompt() {
+    local task_json="$1"
+    local cycle="$2"
+    local spec_file="$3"
+    local retry_context="${4:-}"
+    local task_title task_id task_description
+    local acceptance_skill
+
+    task_title=$(echo "$task_json" | jq -r '.title // "unknown"')
+    task_id=$(echo "$task_json" | jq -r '.id // "unknown"')
+    task_description=$(echo "$task_json" | jq -r '.description // ""')
+
+    acceptance_skill=$(load_skill_content "acceptance-tests")
+
+    cat <<PROMPT_EOF
+## Non-Interactive Mode
+You are running in ralph's automation loop (non-interactive).
+You CANNOT ask questions or wait for user input.
+Communicate status ONLY through beads task management.
+
+## TDD Step: BIND (Cycle $cycle)
+
+### Task Details
+Title: $task_title
+ID: $task_id
+
+Description:
+$task_description
+
+### Your Mission: Write Acceptance Test Implementations
+
+Read the spec file and the generated acceptance test stubs. For each stub
+containing \`t.Fatal("acceptance test not yet bound")\`, replace the sentinel
+with a real test implementation.
+
+**Spec file:** \`$spec_file\`
+**Generated tests:** \`generated-acceptance-tests/\`
+
+### Binding Pattern
+
+For each test function:
+1. Each GIVEN step → file system setup using \`t.TempDir()\`
+2. Each WHEN step → CLI invocation via \`exec.Command("go", "run", ".", subcommand, args...)\`
+3. Each THEN step → output assertion using \`strings.Contains\` or similar
+
+Example:
+\`\`\`go
+func Test_Some_scenario(t *testing.T) {
+    dir := t.TempDir()
+    // GIVEN: set up files
+    // ...
+
+    cmd := exec.Command("go", "run", ".", "subcommand")
+    cmd.Dir = dir
+    output, err := cmd.CombinedOutput()
+    if err != nil {
+        t.Fatalf("command failed: %v\n%s", err, output)
+    }
+
+    // THEN: assert on output
+    if !strings.Contains(string(output), "expected") {
+        t.Errorf("expected output, got: %s", output)
+    }
+}
+\`\`\`
+
+### Rules
+1. Edit the generated test files directly in \`generated-acceptance-tests/\`
+2. Replace ONLY \`t.Fatal("acceptance test not yet bound")\` with real code
+3. Add necessary imports (\`"os"\`, \`"os/exec"\`, \`"path/filepath"\`, \`"strings"\`)
+4. The pipeline preserves bound implementations across regeneration
+5. Do NOT modify the spec file
+6. These tests are expected to FAIL until the feature is built — that's OK
+
+### Bead Management
+- Comment progress: \`npx bd comment $task_id "BIND: wrote acceptance test implementations for ..."\`
+- Do NOT close the bead (acceptance check validates later)
+
+### Do NOT Commit
+Ralph handles commits after BIND. Do NOT run git commit.
+PROMPT_EOF
+
+    if [[ -n "$retry_context" ]]; then
+        cat <<PROMPT_EOF
+
+### Retry Context (Previous Attempt Had Issues)
+$retry_context
+PROMPT_EOF
+    fi
+
+    cat <<PROMPT_EOF
+
+### Acceptance Tests Reference
+$acceptance_skill
+PROMPT_EOF
+}
+
 ##############################################################################
 # TDD cycle orchestration
 ##############################################################################
 
 # Execute one TDD step with up to TDD_STEP_RETRIES semantic retries.
-# Arguments: step_name, task_json, cycle_number, [remaining_items_for_red]
+# Arguments: step_name, task_json, cycle_number, [remaining_items_for_red], [spec_file]
 # Returns 0 on success, 1 on failure after all retries exhausted.
 execute_tdd_step() {
     local step="$1"
     local task_json="$2"
     local cycle="$3"
     local remaining_items="${4:-}"
+    local spec_file="${5:-}"
     local attempt=0
     local prompt retry_context=""
     local test_output
@@ -1433,6 +1625,9 @@ execute_tdd_step() {
                 ;;
             "$STEP_REVIEW")
                 prompt=$(generate_review_prompt "$task_json" "$cycle")
+                ;;
+            "$STEP_BIND")
+                prompt=$(generate_bind_prompt "$task_json" "$cycle" "$spec_file" "$retry_context")
                 ;;
             *)
                 log ERROR "Unknown TDD step: $step"
@@ -1458,6 +1653,12 @@ execute_tdd_step() {
         # REVIEW step: no test verification, uses JSON output instead
         if [[ "$step" == "$STEP_REVIEW" ]]; then
             log INFO "REVIEW step complete (verification via JSON output)"
+            return 0
+        fi
+
+        # BIND step: no test verification (tests are expected to fail until feature is built)
+        if [[ "$step" == "$STEP_BIND" ]]; then
+            log INFO "BIND step complete (acceptance check validates bindings)"
             return 0
         fi
 
@@ -1590,9 +1791,14 @@ execute_unit_tdd_cycle() {
 
         # Check baseline tests before RED
         if ! check_baseline_tests; then
-            log ERROR "Baseline tests failing - marking task BLOCKED"
-            npx bd comment "$task_id" "BLOCKED: baseline tests failing before RED step" 2>/dev/null || true
-            return 1
+            log WARN "Baseline tests failing - attempting auto-fix"
+            if ! attempt_baseline_fix; then
+                log ERROR "Baseline auto-fix failed - marking task BLOCKED"
+                npx bd comment "$task_id" "BLOCKED: baseline tests failing (auto-fix failed after $BASELINE_FIX_MAX_ATTEMPTS attempts)" 2>/dev/null || true
+                return 1
+            fi
+            log INFO "Baseline tests fixed - continuing to RED step"
+            npx bd comment "$task_id" "Baseline tests were failing but auto-fixed" 2>/dev/null || true
         fi
 
         # --- RED: Write failing tests ---
@@ -1725,8 +1931,8 @@ run_acceptance_check() {
 
     log INFO "Running acceptance check for $spec_file"
 
-    # Clean previous artifacts
-    rm -rf generated-acceptance-tests/ acceptance-pipeline/ir/
+    # Clean IR artifacts (generated tests are preserved for bound implementations)
+    rm -rf acceptance-pipeline/ir/
 
     # Run the pipeline
     if ! go run ./acceptance/cmd/pipeline -action=run 2>&1; then
@@ -1764,7 +1970,8 @@ execute_atdd_cycle() {
     # DRY RUN: show prompts and return
     if [[ "$DRY_RUN" == "true" ]]; then
         log INFO "[DRY RUN] ATDD cycle for $task_id with spec $spec_file"
-        log INFO "[DRY RUN] Would run acceptance check, then inner TDD cycles"
+        log INFO "[DRY RUN] Would run acceptance check, then BIND, then inner TDD cycles"
+        execute_tdd_step "$STEP_BIND" "$task_json" 0 "" "$spec_file"
         execute_unit_tdd_cycle "$task_json" "$epic_id"
         return 0
     fi
@@ -1782,6 +1989,12 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>" 2>/dev/null || true
         return 0
     fi
 
+    # --- BIND: Write acceptance test implementations ---
+    log INFO "=== BIND: Writing acceptance test implementations ==="
+    if ! execute_tdd_step "$STEP_BIND" "$task_json" 0 "" "$spec_file"; then
+        log WARN "BIND step failed - continuing with stubs"
+    fi
+
     # Inner TDD loop with acceptance check after each cycle
     local cycle=0
     local remaining_items=""
@@ -1792,9 +2005,14 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>" 2>/dev/null || true
 
         # Check baseline tests before RED
         if ! check_baseline_tests; then
-            log ERROR "Baseline tests failing - marking task BLOCKED"
-            npx bd comment "$task_id" "BLOCKED: baseline tests failing before RED step" 2>/dev/null || true
-            return 1
+            log WARN "Baseline tests failing - attempting auto-fix"
+            if ! attempt_baseline_fix; then
+                log ERROR "Baseline auto-fix failed - marking task BLOCKED"
+                npx bd comment "$task_id" "BLOCKED: baseline tests failing (auto-fix failed after $BASELINE_FIX_MAX_ATTEMPTS attempts)" 2>/dev/null || true
+                return 1
+            fi
+            log INFO "Baseline tests fixed - continuing to RED step"
+            npx bd comment "$task_id" "Baseline tests were failing but auto-fixed" 2>/dev/null || true
         fi
 
         # --- RED: Write smallest possible failing unit test ---

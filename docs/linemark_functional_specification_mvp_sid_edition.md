@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-**Purpose:**  
+**Purpose:**
 Linemark is a command-line tool for managing hierarchical outlines of Markdown documents using filenames alone. It enables structured, sortable, and human-readable content organization within a flat directory.
 
 **Goals:**
@@ -11,6 +11,7 @@ Linemark is a command-line tool for managing hierarchical outlines of Markdown d
 - Provide safe, intuitive commands for adding, moving, deleting, and listing nodes.
 - Maintain compatibility with Git, Finder, VS Code, and Obsidian.
 - Use no external database — filenames are the source of truth for structure and content.
+- Be agent-native: structured JSON output, deterministic behavior, and CI-friendly exit codes enable reliable automation by scripts, pipelines, and AI agents.
 
 **Guiding Principles:**
 - Flat directory; hierarchy encoded in materialized paths.
@@ -18,6 +19,7 @@ Linemark is a command-line tool for managing hierarchical outlines of Markdown d
 - Minimal configuration (CLI flags only in MVP).
 - Version control expected for recovery and history.
 - Deterministic behavior under concurrent CLI invocation.
+- JSON-first output model; human-readable is a presentation layer.
 
 ---
 
@@ -79,6 +81,12 @@ title: Overview
 
 The filename slug is derived from the YAML title during creation and rename operations.
 
+### Title/Slug Invariant
+- The YAML `title` field in the `draft` document is canonical for the node's display name.
+- The filename slug MUST match `slugify(title)` at all times.
+- Drift between the YAML title and the filename slug is a `check` finding, repaired by `doctor --apply`.
+- Duplicate titles across nodes are allowed — SIDs guarantee uniqueness of identity.
+
 ---
 
 ## 3. File Naming & Structure
@@ -102,11 +110,13 @@ The filename slug is derived from the YAML title during creation and rename oper
 ```
 .linemark/
   ids/
+  lock
 ```
 
 - `.linemark/ids/` contains one empty marker file per allocated SID.
 - Each filename in `ids/` is the SID itself.
 - These marker files are permanent and prevent SID reuse.
+- `.linemark/lock` is an advisory lock file acquired by mutating commands to prevent concurrent modification (see Section 4a).
 
 ---
 
@@ -129,7 +139,42 @@ Properties:
 
 ---
 
+## 4a. Advisory Locking
+
+All mutating commands (`add`, `move`, `delete`, `rename`, `compact --apply`, `doctor --apply`) acquire an advisory lock on `.linemark/lock` before performing filesystem changes.
+
+**Mechanism:**
+- Uses `flock`-style advisory file locking (Go: `syscall.Flock` on Unix, cross-platform equivalent on Windows).
+- Lock is acquired at the start of the mutating operation and held for its entire duration.
+- Lock is released when the operation completes (success or failure).
+
+**Behavior:**
+- If the lock cannot be acquired (another mutating command is in progress): exit with error code `1` and a message identifying the lock file.
+- Read-only commands (`list`, `check`, `types list`) do NOT acquire the lock.
+- The lock is advisory — external tools are not prevented from modifying the directory, but concurrent `lmk` invocations are serialized.
+
+---
+
 ## 5. Command Reference
+
+### Global Flags
+
+The following flags are available on all commands:
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--json` | | Structured JSON output to stdout |
+| `--verbose` | `-v` | Debug logging to stderr |
+
+The following flag is available on all mutating commands (`add`, `move`, `delete`, `rename`, `compact`, `doctor --apply`):
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Preview changes without executing; outputs planned actions |
+
+When `--json` is active, all output (including `--dry-run` previews) is structured JSON. Human-readable output is the default when `--json` is not specified.
+
+---
 
 ### Node Selectors
 Commands accept either a Materialized Path (MP) or a SID.
@@ -169,6 +214,8 @@ Behavior:
 - Allocates new SID via reservation system.
 - Creates `draft` and `notes` files.
 - Prints created filenames.
+- `--json`: outputs created file list as JSON array.
+- `--dry-run`: outputs planned files and SID without creating them.
 
 ---
 
@@ -183,6 +230,8 @@ Behavior:
 - Moves node and all descendants.
 - Updates MP prefixes in all affected filenames.
 - SIDs preserved.
+- `--json`: outputs rename map (`{"old": "...", "new": "..."}`).
+- `--dry-run`: outputs planned renames without executing.
 
 ---
 
@@ -199,6 +248,8 @@ Behavior:
 - `-p` promotes children.
 - Interactive confirmation unless `--force`.
 - SID reservation marker remains (SID never reused).
+- `--json`: outputs deleted file list as JSON array.
+- `--dry-run`: outputs files that would be deleted without removing them.
 
 ---
 
@@ -206,12 +257,14 @@ Behavior:
 Display the current hierarchy.
 
 ```
-lmk list [--json]
+lmk list [--json] [--depth <n>] [--type <doc-type>]
 ```
 
 Behavior:
 - Default: human-friendly tree view.
 - `--json`: outputs nested JSON structure with `children` arrays.
+- `--depth <n>`: limits tree display to `n` levels deep.
+- `--type <doc-type>`: filters to show only nodes containing the specified document type.
 
 ---
 
@@ -226,6 +279,8 @@ Behavior:
 - Updates `title` in `draft` frontmatter.
 - Regenerates slug in all related filenames.
 - SID unchanged.
+- `--json`: outputs old/new filename pairs.
+- `--dry-run`: outputs planned renames without executing.
 
 ---
 
@@ -248,14 +303,39 @@ Behavior:
 Reassigns tiered numbering within a subtree.
 
 ```
-lmk compact [<selector>]
+lmk compact [<selector>] [--apply]
 ```
 
 Behavior:
-- Default: whole outline.
+- Default (no `--apply`): report-only; outputs planned renames without executing.
+- `--apply`: executes the renumbering.
 - Renumbers using 100/10/1 tier logic.
-- Prints summary of renames.
 - SIDs unaffected.
+- `--json`: outputs rename map.
+- Warning emitted when more than 50 files would be affected.
+
+---
+
+### `lmk check`
+Read-only validation of the outline.
+
+```
+lmk check [--json]
+```
+
+Checks:
+- Invalid filename patterns (files that don't match the canonical regex).
+- Duplicate SIDs across distinct nodes.
+- Slug drift (filename slug does not match `slugify(title)` in YAML frontmatter).
+- Missing required document types (e.g., node without `draft`).
+- Malformed YAML frontmatter in `draft` files.
+- Orphaned SID reservations (marker file in `.linemark/ids/` with no corresponding content file).
+
+Behavior:
+- Always read-only; never modifies files.
+- Exit code `0`: no findings (outline is clean).
+- Exit code `2`: one or more findings detected.
+- `--json`: outputs structured diagnostics as JSON array, each entry with `type`, `severity`, `message`, and `path` fields.
 
 ---
 
@@ -263,23 +343,44 @@ Behavior:
 Validate and repair the outline.
 
 ```
-lmk doctor [--apply]
+lmk doctor [--apply] [--json]
 ```
 
-Checks:
+Checks (same as `lmk check`):
 - Invalid filename patterns.
-- Duplicate SIDs across distinct nodes (error).
-- Unreserved SID referenced in filenames → reserve it.
+- Duplicate SIDs across distinct nodes (error — not auto-repairable).
+- Slug drift.
 - Missing required document types.
 - Malformed YAML frontmatter.
+- Unreserved SIDs (content file references a SID with no marker in `.linemark/ids/`).
 
 Behavior:
-- Default: report-only.
-- `--apply`: perform safe repairs.
+- Default (no `--apply`): report-only, identical to `check`. Exit code `2` if findings exist.
+- `--apply`: perform safe repairs:
+  - Reserve unreserved SIDs (create missing `.linemark/ids/<sid>` markers).
+  - Fix slug drift (rename files to match `slugify(title)` from YAML frontmatter).
+  - Create missing `notes` files for nodes that lack them.
+- Repairs are deterministic: the same input always produces the same output.
+- `--json`: outputs repair plan (without `--apply`) or repair results (with `--apply`).
+- Duplicate SIDs are reported but never auto-repaired — manual intervention required.
 
 ---
 
-## 6. Parsing & Internal Model
+## 6. Exit Codes
+
+All commands follow a consistent exit code convention:
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success — command completed without errors or findings |
+| `1` | General error — invalid arguments, lock acquisition failure, I/O error, or other runtime failure |
+| `2` | Validation findings — `check` or `doctor` detected issues in the outline |
+
+Exit codes are stable and suitable for use in scripts, CI pipelines, and agent workflows.
+
+---
+
+## 7. Parsing & Internal Model
 
 ### Filename Regex
 
@@ -289,20 +390,20 @@ Behavior:
 
 Parsed record:
 
-```python
-{
-  'mp': '001-200-010',
-  'sid': 'A3F7c9Qx7Lm2',
-  'type': 'draft',
-  'slug': 'overview',
-  'path_parts': ['001', '200', '010'],
-  'depth': 3
+```go
+type ParsedFile struct {
+    MP        string   // "001-200-010"
+    SID       string   // "A3F7c9Qx7Lm2"
+    DocType   string   // "draft"
+    Slug      string   // "overview"
+    PathParts []string // ["001", "200", "010"]
+    Depth     int      // 3
 }
 ```
 
 ---
 
-## 7. Behavioral Rules
+## 8. Behavioral Rules
 
 ### Numbering
 - Three-digit segments (001–999).
@@ -329,32 +430,50 @@ Parsed record:
 - Removes files only.
 - Leaves SID reservation intact.
 
+### Determinism Guarantees
+- Tree construction from directory listing is deterministic: the same set of files always produces the same tree.
+- Sort order: byte-wise ASCII sort on filenames (not locale-dependent).
+- No hidden state affects hierarchy beyond filenames and the `.linemark/` control directory.
+- Filesystem case sensitivity: filenames are treated as case-sensitive. On case-insensitive filesystems (e.g., macOS HFS+/APFS default), users must avoid titles that differ only in case.
+
+### Structural Limits
+- MP segment range: 001–999 (maximum 999 siblings per parent).
+- No hard depth limit; practical recommendation is 20 levels or fewer.
+- Overflow: when no gap exists for insertion at the target position, the command fails with an error and a suggestion to run `compact`.
+
+### Scale and Performance
+- All commands parse the directory on each invocation — O(n) where n is the file count in the content directory.
+- Expected scale: up to 10,000 files per directory.
+- No caching in MVP; `.linemark/cache` is reserved for future extension.
+
 ---
 
-## 8. Dependencies & Library Recommendations
+## 9. Dependencies & Library Recommendations
 
-| Purpose | Library | Notes |
-|----------|----------|-------|
-| CLI framework | `click` | Subcommand management |
-| Random bytes | `secrets` | Cryptographically secure randomness |
-| Base62 encoding | custom or lightweight lib | Encode random bytes |
-| YAML parsing | `pyyaml` | Frontmatter handling |
-| Slug creation | `python-slugify` | Title slugging |
-| JSON output | built-in `json` | Pretty-print with indent=2 |
-| File handling | `pathlib` | Filesystem ops |
-| Regex parsing | built-in `re` | Filename tokenization |
+| Purpose | Library / Package | Notes |
+|----------|-------------------|-------|
+| CLI framework | `github.com/spf13/cobra` | Subcommand management |
+| Random bytes | `crypto/rand` | Cryptographically secure randomness |
+| Base62 encoding | custom or lightweight lib | Encode random bytes to alphanumeric |
+| YAML parsing | `gopkg.in/yaml.v3` | Frontmatter handling |
+| Slug creation | custom or `gosimple/slug` | Title slugging |
+| JSON output | `encoding/json` | Structured output with `json.Marshal` |
+| File handling | `os` + `path/filepath` | Cross-platform filesystem ops |
+| Regex parsing | `regexp` | Filename tokenization |
+| Advisory locking | `syscall` or cross-platform flock | File-level advisory locking |
 
 ---
 
-## 9. Future Extensions
+## 10. Future Extensions
 
-- Transaction planning (`--dry-run`, `--json` diffs)
-- Query subsystem
-- Git-aware operations
-- Templates for document types
-- Subtree export/import
+- Query subsystem (`lmk query <expression>`) for filtering and searching nodes.
+- Link rewriting on move/rename (update internal Markdown links when nodes are reorganized).
+- Full plan/apply separation (`lmk plan`, `lmk apply`) for complex multi-step operations.
+- `.linemark/cache` for directory parsing performance at scale.
+- Git-aware operations.
+- Templates for document types.
+- Subtree export/import.
 
 ---
 
 **End of SID Edition Specification**
-

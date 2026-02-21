@@ -1,0 +1,51 @@
+;===============================================================
+; Author moves a node to a new parent.
+;===============================================================
+GIVEN an outline with "Part One" containing "Chapter 1" and a separate "Part Two".
+
+WHEN the author moves "Chapter 1" to be a child of "Part Two".
+
+THEN "Chapter 1" appears under "Part Two".
+THEN "Chapter 1" no longer appears under "Part One".
+
+
+;===============================================================
+; Moving a node preserves its descendants.
+;===============================================================
+GIVEN "Chapter 1" has children "Scene 1" and "Scene 2".
+
+WHEN the author moves "Chapter 1" to a new parent.
+
+THEN "Scene 1" and "Scene 2" remain as children of "Chapter 1".
+
+
+;===============================================================
+; Moving a node preserves stable identifiers.
+;===============================================================
+GIVEN a node with a known stable identifier.
+
+WHEN the author moves the node to a new position.
+
+THEN the node's stable identifier is unchanged.
+
+
+;===============================================================
+; Author previews a move without executing it.
+;===============================================================
+GIVEN an outline with nodes to move.
+
+WHEN the author requests a dry-run move.
+
+THEN the planned file changes are displayed.
+THEN no files are actually modified.
+
+
+;===============================================================
+; Moving a node into its own subtree is rejected.
+;===============================================================
+GIVEN a node "Part One" with descendant "Chapter 1".
+
+WHEN the author attempts to move "Part One" to be a child of "Chapter 1".
+
+THEN the operation is rejected with an error.
+THEN no files are modified.

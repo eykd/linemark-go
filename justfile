@@ -4,13 +4,13 @@
 # Default recipe: run all quality checks
 default: check
 
-# Run all tests
+# Run all unit tests (excludes generated acceptance tests)
 test:
-    go test ./...
+    go test $(go list ./... | grep -v '/generated-acceptance-tests$')
 
-# Run tests with verbose output
+# Run tests with verbose output (excludes generated acceptance tests)
 test-verbose:
-    go test -v ./...
+    go test -v $(go list ./... | grep -v '/generated-acceptance-tests$')
 
 # Run tests with coverage report (excludes main package)
 test-cover:
@@ -31,7 +31,7 @@ test-cover-html: test-cover
 test-cover-check:
     #!/usr/bin/env bash
     set -uo pipefail
-    PACKAGES=$(go list ./... | grep -v '^github.com/eykd/linemark-go$' | grep -v '/cmd/pipeline$')
+    PACKAGES=$(go list ./... | grep -v '^github.com/eykd/linemark-go$' | grep -v '/cmd/pipeline$' | grep -v '/internal/fs$' | grep -v '/generated-acceptance-tests$')
     go test -coverprofile=coverage.out $PACKAGES || exit 1
     # Check that all non-Impl functions are at 100%
     # Filter out: Impl functions (exempt), main (exempt), total line, and 100% functions
@@ -67,6 +67,21 @@ check: fmt-check vet lint test-cover-check
 build:
     go build -o bin/lmk .
 
+# Smoke-test: errors are visible, not silent
+smoke: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    BIN="$(pwd)/bin/lmk"
+    DIR=$(mktemp -d)
+    trap "rm -rf $DIR" EXIT
+    # Must print error, not be silent
+    OUTPUT=$("$BIN" list 2>&1) && { echo "FAIL: expected non-zero exit"; exit 1; } || true
+    if [ -z "$OUTPUT" ]; then
+        echo "FAIL: 'lmk list' outside project produced no output"
+        exit 1
+    fi
+    echo "Smoke test passed"
+
 # Clean build artifacts
 clean:
     rm -rf bin/ coverage.out coverage.html generated-acceptance-tests/ acceptance-pipeline/ir/
@@ -95,6 +110,11 @@ acceptance-generate:
 # Run generated acceptance tests only
 acceptance-run:
     go test -v ./generated-acceptance-tests/...
+
+# Force-regenerate all acceptance stubs (destroys bound implementations!)
+acceptance-regen:
+    rm -rf generated-acceptance-tests/ acceptance-pipeline/ir/
+    ./run-acceptance-tests.sh
 
 # Run both unit tests and acceptance tests
 test-all: test acceptance
