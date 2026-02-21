@@ -65,8 +65,8 @@ func NewRootCmd() *cobra.Command {
 
 // BuildCommandTree creates a complete root command with all subcommands wired
 // to the given service. If svc is nil, all runners will be nil (nil guards in
-// each command will return ErrNotInProject), except for add which uses
-// bootstrapAdd when provided.
+// each command will return ErrNotInProject). The bootstrapAdd parameter is
+// accepted for API compatibility but is no longer used.
 func BuildCommandTree(svc *outline.OutlineService, bootstrapAdd AddRunner) *cobra.Command {
 	root := NewRootCmd()
 
@@ -90,8 +90,6 @@ func BuildCommandTree(svc *outline.OutlineService, bootstrapAdd AddRunner) *cobr
 		rna = &renameAdapter{svc: svc}
 		cpa = &compactAdapter{svc: svc}
 		ta = &typesAdapter{svc: svc}
-	} else if bootstrapAdd != nil {
-		aa = bootstrapAdd
 	}
 
 	// Commands that work without a project
@@ -152,21 +150,10 @@ func Execute() error {
 
 // ExecuteContextImpl runs the root command with the given context.
 // This enables graceful shutdown via context cancellation (e.g., on SIGINT).
-// It is an Impl function because it wraps OS operations (wireFromCwdImpl, os.Getwd).
+// It is an Impl function because it wraps OS operations (wireFromCwdImpl).
 func ExecuteContextImpl(ctx context.Context) error {
 	svc, _ := wireFromCwdImpl()
-
-	var bootstrap AddRunner
-	if svc == nil {
-		bootstrap = &bootstrapAddAdapter{
-			getwd: os.Getwd,
-			wireService: func(root string) (outlineServicer, error) {
-				return wireServiceFromRootImpl(root)
-			},
-		}
-	}
-
-	root := BuildCommandTree(svc, bootstrap)
+	root := BuildCommandTree(svc, nil)
 	return root.ExecuteContext(ctx)
 }
 
